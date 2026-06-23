@@ -1,0 +1,8 @@
+name = "zh-vocab-worker"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# KV namespace title trên Cloudflare: ZH_VOCAB. Binding trong code: env.VOCAB
+[[kv_namespaces]]
+binding = "VOCAB"
+id = "b57e55d6d3a1461287254059f2178075"
