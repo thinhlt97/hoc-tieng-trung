@@ -477,6 +477,34 @@ function toast(msg){
   clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),2200);
 }
 function speakBtn(text){ return `<button class="speak" onclick="speak('${text.replace(/'/g,"\\'")}')">🔊</button>`; }
+/* nút ✍ cạnh mỗi từ: bấm để hiện/ẩn ô chạy thứ tự nét ngay tại chỗ */
+function writeBtn(text){ return `<button class="speak" title="Xem cách viết" onclick="showStrokeGuide(this,'${text.replace(/'/g,"\\'")}')">✍</button>`; }
+function showStrokeGuide(btn, word){
+  const card = btn.closest(".card"); if(!card) return;
+  const old = card.querySelector(":scope > .hz-guide");
+  if(old){ old.remove(); return; }          // bấm lần nữa để ẩn
+  if(typeof HanziWriter==="undefined"){ toast("Chưa tải được thư viện viết chữ (cần mạng lần đầu)"); return; }
+  const chars = (word.match(/[㐀-鿿]/g)||[]);
+  if(!chars.length){ toast("Từ này không có chữ Hán để viết"); return; }
+  const panel = el(`<div class="hz-guide" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)"></div>`);
+  const wrap = el(`<div class="row" style="gap:8px;flex-wrap:wrap;justify-content:center"></div>`);
+  const ctrl = el(`<div class="row" style="justify-content:center;margin-top:6px"><button class="btn btn-ghost btn-sm">▶ Xem lại</button></div>`);
+  panel.append(wrap, ctrl); card.append(panel);
+  const writers = chars.map(ch=>{
+    const t = el(`<div style="width:104px;height:104px;border:1px dashed var(--line);border-radius:8px;background:var(--card)"></div>`);
+    wrap.append(t);
+    return HanziWriter.create(t, ch, {
+      width:104, height:104, padding:6,
+      showCharacter:false, showOutline:true, outlineColor:"#d9cdb4",
+      strokeColor:"#b32018", radicalColor:"#c79a3a",
+      strokeAnimationSpeed:0.8, delayBetweenStrokes:300
+    });
+  });
+  function seq(i){ if(i>=writers.length) return; writers[i].animateCharacter({ onComplete:()=>seq(i+1) }); }
+  function playAll(){ writers.forEach(w=>w.hideCharacter({duration:0})); seq(0); }
+  ctrl.querySelector("button").onclick=playAll;
+  playAll();
+}
 
 /* ====================================================================
  * NAV
@@ -540,7 +568,7 @@ function renderToday(){
           <div class="pinyin">${x.p} <span class="pos">${x.pos}</span></div>
           <div class="meaning">${esc(x.vi)}</div>
         </div>
-        <div class="row">${speakBtn(x.w)}</div>
+        <div class="row">${speakBtn(x.w)} ${writeBtn(x.w)}</div>
       </div>
     </div>`);
     const seenBtn=el(`<button class="btn btn-ghost btn-sm" style="margin-top:8px">✓ Đã xem — đưa vào lịch ôn</button>`);
@@ -610,7 +638,7 @@ function renderVocab(){
     const row=el(`<div class="card">
       <div class="row spread wrap">
         <div>
-          <div class="row"><span class="word-han">${x.w}</span> ${speakBtn(x.w)}</div>
+          <div class="row"><span class="word-han">${x.w}</span> ${speakBtn(x.w)} ${writeBtn(x.w)}</div>
           <div class="pinyin">${x.p} <span class="pos">${x.pos}</span> <span class="cat">${x.cat}</span> ${badge}</div>
           <div class="meaning">${esc(x.vi)}</div>
         </div>
