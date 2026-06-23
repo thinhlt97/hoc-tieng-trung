@@ -147,7 +147,11 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
 - ✅ **Kiểu luyện tập** (6): Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn,
   **⌨ Nghe → gõ pinyin** (so khớp pinyin đã bỏ dấu, hàm `normPinyin`),
   **✍ Tập viết** (Hanzi Writer): mỗi chữ có 2 bước — ① xem mẫu thứ tự nét
-  (animateCharacter) → ② viết lại (quiz), hiện số nét, chấm theo số lần sai.
+  (animateCharacter **lặp liên tục** cho tới khi bấm "Tôi tự viết", tự cuộn ô vào
+  giữa) → ② viết lại (quiz), hiện số nét, chấm theo số lần sai.
+- ✅ **Nút ✍ "xem cách viết" cạnh mỗi từ** ở tab Hôm nay & Từ vựng (`writeBtn` +
+  `showStrokeGuide`): bấm để hiện/ẩn ô chạy thứ tự nét ngay tại chỗ (đa ký tự chạy
+  lần lượt), có nút "▶ Xem lại". Dùng chung thư viện Hanzi Writer CDN.
 - ✅ **Tiến độ**: thanh % cho **từng cấp** HSK1–4 (không còn hardcode HSK1) +
   **heatmap lịch sử ôn** 18 tuần (lưu ở `state.stats.history[ngày]`, gộp khi đồng bộ).
 - ✅ **Phạm vi luyện tập**: chip HSK1/2/3/4 (scope `lv<N>` parse động trong `scopeWords`).
