@@ -783,55 +783,76 @@ function quizCard(x, mode){
 /* ---- Tập viết chữ Hán (Hanzi Writer) ---- */
 function hanChars(w){ return (w.match(/[㐀-鿿]/g)||[]); }
 function writeCard(x){
-  return `<div class="flash" style="min-height:auto; padding:18px">
-    <div class="meaning" style="font-size:22px">${esc(x.vi)}</div>
-    <div class="pinyin" style="font-size:18px">${x.p} <span class="pos">${x.pos}</span> ${speakBtn(x.w)}</div>
-    <p class="small muted" id="writeProg" style="margin:6px 0 0"></p>
-    <div id="hzTarget" style="width:240px;height:240px;margin:12px auto;border:2px dashed var(--line);border-radius:12px;background:var(--card)"></div>
-    <div class="row" style="justify-content:center;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-ghost btn-sm" id="hzDemo">▶ Xem mẫu</button>
-      <button class="btn btn-ghost btn-sm" id="hzReveal">👁 Hiện chữ</button>
-      <button class="btn btn-ghost btn-sm" id="hzSkip">⤼ Bỏ qua từ</button>
+  return `<div class="flash" style="min-height:auto; padding:16px">
+    <div class="row" style="justify-content:center;gap:8px">
+      <div class="meaning" style="font-size:20px">${esc(x.vi)}</div>
+      <div class="pinyin">${x.p} <span class="pos">${x.pos}</span></div>
+      ${speakBtn(x.w)}
     </div>
+    <p class="small" id="writeProg" style="margin:6px 0 0;font-weight:600;color:var(--red)"></p>
+    <div id="hzTarget" style="width:248px;height:248px;margin:10px auto;border:2px dashed var(--line);border-radius:12px;background:var(--card)"></div>
+    <div class="row" id="hzBtns" style="justify-content:center;gap:8px;flex-wrap:wrap"></div>
   </div>`;
 }
 function bindWriteCard(x){
   const chars=hanChars(x.w);
   const target=document.getElementById("hzTarget");
   const prog=document.getElementById("writeProg");
-  document.getElementById("hzSkip").onclick=()=>{ review(x.w,1); advance(); };
+  const btns=document.getElementById("hzBtns");
   if(typeof HanziWriter==="undefined"){
-    target.innerHTML=`<p class="small muted" style="padding:16px;text-align:center">Chưa tải được thư viện viết chữ.<br>Cần mạng lần đầu (sau đó dùng offline được). Hãy bấm “Bỏ qua từ”.</p>`;
+    target.innerHTML=`<p class="small muted" style="padding:16px;text-align:center">Chưa tải được thư viện viết chữ.<br>Cần mạng lần đầu (sau đó dùng offline được).</p>`;
+    btns.innerHTML=`<button class="btn btn-ghost btn-sm" id="hzSkip">⤼ Bỏ qua từ</button>`;
+    document.getElementById("hzSkip").onclick=()=>{ review(x.w,1); advance(); };
     return;
   }
+  // đưa ô viết vào giữa màn hình để luôn nhìn thấy
+  setTimeout(()=>target.scrollIntoView({block:"center",behavior:"smooth"}), 60);
 
-  let ci=0, mistakes=0, writer=null, nstrokes="";
-  const SZ=240;
+  let ci=0, mistakes=0, writer=null, nstrokes="", phase="demo";
+  const SZ=248;
   function label(step){
     const pos = chars.length>1 ? `Chữ ${ci+1}/${chars.length} (${chars[ci]}) · ` : "";
     const n = nstrokes ? ` · ${nstrokes} nét` : "";
     prog.innerHTML = pos + step + n;
   }
+  function setButtons(){
+    if(phase==="demo"){
+      btns.innerHTML=`<button class="btn btn-primary btn-sm" id="hzStart">✍ Tôi tự viết</button>
+        <button class="btn btn-ghost btn-sm" id="hzSkip">⤼ Bỏ qua</button>`;
+      document.getElementById("hzStart").onclick=()=>startQuiz();
+    }else{
+      btns.innerHTML=`<button class="btn btn-ghost btn-sm" id="hzReplay">▶ Xem lại mẫu</button>
+        <button class="btn btn-ghost btn-sm" id="hzReveal">👁 Hiện chữ</button>
+        <button class="btn btn-ghost btn-sm" id="hzSkip">⤼ Bỏ qua</button>`;
+      document.getElementById("hzReplay").onclick=()=>{ phase="demo"; setButtons(); demoLoop(); };
+      document.getElementById("hzReveal").onclick=()=>{ if(writer) writer.showCharacter(); };
+    }
+    document.getElementById("hzSkip").onclick=()=>{ review(x.w,1); advance(); };
+  }
   function startChar(){
-    target.innerHTML=""; nstrokes="";
+    target.innerHTML=""; nstrokes=""; phase="demo";
     writer=HanziWriter.create(target,chars[ci],{
       width:SZ,height:SZ,padding:8,
-      showCharacter:false,showOutline:true,
-      strokeColor:"#b32018",radicalColor:"#c79a3a",drawingColor:"#1a1816",
-      strokeAnimationSpeed:0.9, delayBetweenStrokes:320,
-      drawingWidth:18,showHintAfterMisses:3,highlightOnComplete:true
+      showCharacter:false, showOutline:true, outlineColor:"#d9cdb4",
+      strokeColor:"#b32018", radicalColor:"#c79a3a", drawingColor:"#1a1816",
+      strokeAnimationSpeed:0.7, delayBetweenStrokes:450,
+      drawingWidth:20, showHintAfterMisses:3, highlightOnComplete:true
     });
+    setButtons();
     HanziWriter.loadCharacterData(chars[ci])
-      .then(d=>{ nstrokes = d&&d.strokes ? d.strokes.length : ""; demo(); })
-      .catch(()=>demo());
+      .then(d=>{ nstrokes = d&&d.strokes ? d.strokes.length : ""; demoLoop(); })
+      .catch(()=>demoLoop());
   }
-  function demo(){          // ① minh họa thứ tự nét
-    label("①&nbsp;Xem mẫu — thứ tự nét");
+  function demoLoop(){      // ① minh họa thứ tự nét — LẶP cho tới khi bấm "Tôi tự viết"
+    if(phase!=="demo" || !writer) return;
+    label("①&nbsp;Xem mẫu — thứ tự nét (đang lặp)");
     writer.hideCharacter({duration:0});
-    writer.animateCharacter({ onComplete:()=>quiz() });
+    writer.animateCharacter({ onComplete:()=>{ if(phase==="demo") setTimeout(demoLoop, 700); } });
   }
-  function quiz(){          // ② tập viết lại theo trí nhớ
+  function startQuiz(){     // ② tự viết lại
+    phase="quiz"; setButtons();
     label("②&nbsp;Viết lại theo thứ tự nét");
+    writer.hideCharacter({duration:0});
     writer.quiz({
       onMistake:()=>{ mistakes++; },
       onComplete:()=>{
@@ -848,8 +869,6 @@ function bindWriteCard(x){
     review(x.w,g);
     setTimeout(advance, 800);
   }
-  document.getElementById("hzDemo").onclick=()=>{ if(writer){ label("①&nbsp;Xem mẫu — thứ tự nét"); writer.animateCharacter({ onComplete:()=>quiz() }); } };
-  document.getElementById("hzReveal").onclick=()=>{ if(writer) writer.showCharacter(); };
   startChar();
 }
 
