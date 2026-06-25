@@ -75,6 +75,11 @@ POST ?code=MA { "data":{} }← { "ok": true }
     "provider":"gemini"|"groq" }
 ← { "examples":[ { "zh","pinyin","vi" } ] }
 ```
+**Dịch câu** (kiểu luyện tập “📝 Dịch câu”):
+```
+→ { "task":"sentences", "level":"HSK1", "n":5, "provider":"gemini"|"groq" }
+← { "sentences":[ { "zh","pinyin","vi","vocab":[{ "w","p","vi" }] } ] }
+```
 Lỗi luôn trả `{ "error":"..." }` kèm header CORS.
 
 ## 4. Mô hình dữ liệu (state lưu localStorage + KV)
@@ -141,14 +146,26 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
   `/api/chinese` (ví dụ AI) ⏳ **còn thiếu env `GEMINI_API_KEY` / `GROQ_API_KEY`**.
   Deploy lại: `cd proxy && vercel deploy --prod --yes --scope thinhlt1069s-projects`.
 - ✅ **1191 từ** (HSK1 151 + HSK2 147 + HSK3 295 + HSK4 598) + 33 câu;
-  **6 kiểu luyện tập** + SRS. HSK3/HSK4 dịch từ danh sách chuẩn HSK 2012
+  **8 kiểu luyện tập** + SRS. HSK3/HSK4 dịch từ danh sách chuẩn HSK 2012
   (nguồn `glxxyz/hskhsk.com`), pinyin lấy gốc, nghĩa Việt + pos + cat do bổ sung.
   pos thêm: `liên` (liên từ). cat thêm: `học tập`, `trang phục`, `thiên nhiên`.
-- ✅ **Kiểu luyện tập** (6): Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn,
+- ✅ **Kiểu luyện tập** (8): Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn,
+  **🎯 Trắc nghiệm 5 câu** (`makeExam`/`bindExamCard`/`examExplain`): mỗi phiên 5 câu
+  ABCD, trộn ngẫu nhiên 4 dạng hỏi (Hán→nghĩa, nghĩa→Hán, pinyin→Hán, Hán→pinyin);
+  chọn xong **hiện giải thích** (đúng: nghĩa+pinyin từ đúng; sai: nêu rõ từ bạn chọn
+  thực ra nghĩa gì rồi mới chỉ đáp án đúng) + nút "Câu tiếp →". Chạy **offline** từ
+  `HSK_WORDS`, tính vào SRS như các kiểu khác.
   **⌨ Nghe → gõ pinyin** (so khớp pinyin đã bỏ dấu, hàm `normPinyin`),
   **✍ Tập viết** (Hanzi Writer): mỗi chữ có 2 bước — ① xem mẫu thứ tự nét
   (animateCharacter **lặp liên tục** cho tới khi bấm "Tôi tự viết", tự cuộn ô vào
   giữa) → ② viết lại (quiz), hiện số nét, chấm theo số lần sai.
+- ✅ **📝 Dịch câu** (kiểu luyện tập, `startTranslate`/`renderTranslate`/`transReveal`):
+  AI tạo 5 câu tiếng Trung theo trình độ (lấy từ chip phạm vi qua `levelFromScope`,
+  mặc định HSK1). Mỗi câu là 1 ô có nút "👁 Dịch nghĩa" — bấm để hiện/ẩn phiên âm +
+  bản dịch + giải nghĩa từng từ vựng trong câu. Nút "↻ Tạo 5 câu khác". **Cần AI**
+  (proxy `task:"sentences"` → `{sentences:[{zh,pinyin,vi,vocab:[{w,p,vi}]}]}`); KHÔNG
+  tính vào SRS (câu tự do, không nằm trong `HSK_WORDS`). Nếu thiếu `PROXY_URL`/env thì
+  báo cần bật AI.
 - ✅ **Nút ✍ "xem cách viết" cạnh mỗi từ** ở tab Hôm nay & Từ vựng (`writeBtn` +
   `showStrokeGuide`): bấm để hiện/ẩn ô chạy thứ tự nét ngay tại chỗ (đa ký tự chạy
   lần lượt), có nút "▶ Xem lại". Dùng chung thư viện Hanzi Writer CDN.

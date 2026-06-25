@@ -220,6 +220,8 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
       <button class="chip" data-m="listen">Nghe &amp; chọn</button>
       <button class="chip" data-m="typepy">⌨ Nghe → gõ pinyin</button>
       <button class="chip" data-m="write">✍ Tập viết</button>
+      <button class="chip" data-m="exam">🎯 Trắc nghiệm 5 câu</button>
+      <button class="chip" data-m="translate">📝 Dịch câu</button>
     </div>
     <div class="card" id="practiceScopeCard">
       <div class="row spread wrap">
@@ -709,13 +711,21 @@ function scopeWords(scope){
   if(m) return WORDS.filter(x=>x.lv===+m[1]);
   return [];
 }
+function levelFromScope(scope){
+  const m=/^lv(\d+)$/.exec(scope||"");
+  return m? "HSK"+m[1] : "HSK1";
+}
 function updateScopeInfo(){
-  document.getElementById("practiceScopeInfo").textContent = scopeWords(pScope).length+" từ trong phạm vi";
+  const el=document.getElementById("practiceScopeInfo");
+  if(pMode==="translate"){ el.textContent="AI tạo 5 câu "+levelFromScope(pScope)+" để dịch (không dùng phạm vi)"; return; }
+  el.textContent = scopeWords(pScope).length+" từ trong phạm vi";
 }
 function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];} return a; }
 
 let session=null;
 function startSession(mode,scope){
+  if(mode==="exam"){ startExam(scope); return; }
+  if(mode==="translate"){ startTranslate(scope); return; }
   let pool=shuffle(scopeWords(scope));
   if(pool.length===0){
     document.getElementById("practiceArea").innerHTML=
@@ -734,6 +744,7 @@ function nextCard(){
   if(session.mode==="flash"){ area.innerHTML=head+flashCard(x); bindCard(x); }
   else if(session.mode==="write"){ area.innerHTML=head+writeCard(x); bindWriteCard(x); }
   else if(session.mode==="typepy"){ area.innerHTML=head+typeCard(x); bindTypeCard(x); }
+  else if(session.mode==="exam"){ const q=makeExam(x); area.innerHTML=head+q.html; bindExamCard(x,q.opts); }
   else { area.innerHTML=head+quizCard(x, session.mode); bindCard(x); }
 }
 /* ---- Nghe → gõ pinyin ---- */
@@ -807,6 +818,160 @@ function quizCard(x, mode){
   const optHtml=opts.map(o=>`<button class="opt" data-w="${o.w}">${optText(o)}</button>`).join("");
   return `<div class="flash" style="min-height:auto; padding:18px">${prompt}</div>
     <div id="optWrap" style="margin-top:12px">${optHtml}</div>`;
+}
+/* ---- 🎯 Trắc nghiệm 5 câu (có giải thích) — chạy offline ---- */
+function makeExam(x){
+  const types=["zh2vi","vi2zh","py2zh","zh2py"];
+  const t=types[Math.random()*types.length|0];
+  let distract=shuffle(WORDS.filter(o=>o.w!==x.w && o.pos===x.pos)).slice(0,3);
+  while(distract.length<3){ const r=WORDS[Math.random()*WORDS.length|0]; if(r.w!==x.w && !distract.includes(r)) distract.push(r); }
+  const opts=shuffle([x,...distract]);
+  let prompt, optText;
+  if(t==="zh2vi"){
+    prompt=`<div class="word-han big">${x.w}</div>${speakBtn(x.w)}<p class="small muted">「${x.w}」 nghĩa là gì?</p>`;
+    optText=o=>esc(o.vi);
+  }else if(t==="vi2zh"){
+    prompt=`<div class="meaning" style="font-size:22px">${esc(x.vi)}</div><p class="small muted">Từ nào mang nghĩa trên?</p>`;
+    optText=o=>`<span class="han">${o.w}</span> <span class="small muted">${o.p}</span>`;
+  }else if(t==="py2zh"){
+    prompt=`<div class="pinyin" style="font-size:26px">${x.p}</div><p class="small muted">Chữ Hán nào đọc là “${x.p}”?</p>`;
+    optText=o=>`<span class="han">${o.w}</span>`;
+  }else{ // zh2py
+    prompt=`<div class="word-han big">${x.w}</div>${speakBtn(x.w)}<p class="small muted">「${x.w}」 đọc pinyin là gì?</p>`;
+    optText=o=>`<span class="pinyin">${o.p}</span>`;
+  }
+  const letters=["A","B","C","D"];
+  const optHtml=opts.map((o,i)=>`<button class="opt" data-w="${o.w}"><b style="color:var(--red);margin-right:8px">${letters[i]}.</b>${optText(o)}</button>`).join("");
+  const html=`<div class="flash" style="min-height:auto;padding:18px">${prompt}</div>
+    <div id="optWrap" style="margin-top:12px">${optHtml}</div>
+    <div id="examExplain" style="margin-top:12px"></div>`;
+  return {html, opts};
+}
+function wordCard(o){ return `「${o.w}」 <span class="muted">/${o.p}/</span> = ${esc(o.vi)} <span class="pos">${o.pos}</span>`; }
+function examExplain(x, picked){
+  if(picked.w===x.w){
+    return `<div class="card" style="border-color:var(--green);background:var(--green-bg)">
+      <b style="color:var(--green)">✓ Chính xác!</b><br>${wordCard(x)}</div>`;
+  }
+  return `<div class="card" style="border-color:var(--bad);background:var(--bad-bg)">
+    <b style="color:var(--bad)">✗ Chưa đúng.</b><br>
+    Bạn chọn ${wordCard(picked)}<br>
+    <b style="color:var(--green)">Đáp án đúng:</b> ${wordCard(x)}</div>`;
+}
+function bindExamCard(x, opts){
+  const wrap=document.getElementById("optWrap");
+  const exp=document.getElementById("examExplain");
+  wrap.addEventListener("click",e=>{
+    const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
+    wrap.dataset.done="1";
+    const picked=opts.find(o=>o.w===b.dataset.w);
+    const ok=picked.w===x.w;
+    wrap.querySelectorAll(".opt").forEach(o=>{
+      if(o.dataset.w===x.w) o.classList.add("correct");
+      else if(o===b) o.classList.add("wrong");
+    });
+    if(ok) session.correct++;
+    speak(x.w);
+    review(x.w, ok?2:0);
+    const last = session.i+1>=session.total;
+    exp.innerHTML=examExplain(x,picked)+
+      `<button class="btn btn-primary" id="examNext" style="margin-top:4px">${last?'Xem kết quả →':'Câu tiếp →'}</button>`;
+    document.getElementById("examNext").onclick=advance;
+    setTimeout(()=>exp.scrollIntoView({block:"center",behavior:"smooth"}), 40);
+  });
+}
+/* ---- 🎯 Trắc nghiệm AI: câu hỏi tiếng Trung (điền từ / chọn câu đúng) ---- */
+async function startExam(scope){
+  const area=document.getElementById("practiceArea");
+  const words=shuffle(scopeWords(scope));
+  if(words.length===0){
+    area.innerHTML=`<div class="empty"><span class="em">空</span>Không có từ nào trong phạm vi này.<br>Hãy thêm từ ở tab “Từ vựng” hoặc “Hôm nay”.</div>`;
+    return;
+  }
+  const want=Math.min(5, words.length);
+  if(!PROXY_URL){ startExamOffline(scope, want); return; }
+  const pick=words.slice(0, Math.min(8, words.length));
+  area.innerHTML=`<div class="card" style="text-align:center">
+    <div class="word-han" style="font-size:34px">⏳</div>
+    <p style="margin:8px 0">Đang tạo ${want} câu hỏi bằng tiếng Trung…</p>
+    <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
+  try{
+    const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({task:"quiz", n:want, provider:state.settings.provider,
+        words:pick.map(w=>({w:w.w,p:w.p,vi:w.vi,pos:w.pos}))})});
+    const j=await r.json();
+    if(j.error) throw new Error(j.error);
+    let qs=(j.questions||[]).filter(q=>q&&Array.isArray(q.options)&&q.options.length===4
+      && Number.isInteger(q.correct) && q.correct>=0 && q.correct<=3 && q.stem);
+    if(qs.length===0) throw new Error("AI không trả câu hỏi hợp lệ");
+    qs=qs.slice(0,want);
+    session={mode:"exam", ai:true, questions:qs, i:0, correct:0, total:qs.length};
+    nextExam();
+  }catch(err){
+    area.innerHTML=`<div class="card">
+      <p class="small" style="color:var(--bad);font-weight:600">Không tạo được câu hỏi AI: ${esc(err.message)}</p>
+      <p class="small muted">Đang chuyển sang bộ câu hỏi offline…</p></div>`;
+    setTimeout(()=>startExamOffline(scope, want), 1100);
+  }
+}
+function startExamOffline(scope, want){
+  const pool=shuffle(scopeWords(scope)).slice(0, want||5);
+  if(pool.length===0){
+    document.getElementById("practiceArea").innerHTML=
+      `<div class="empty"><span class="em">空</span>Không có từ nào trong phạm vi này.</div>`;
+    return;
+  }
+  session={mode:"exam", ai:false, pool, i:0, correct:0, total:pool.length};
+  nextCard();
+}
+function nextExam(){
+  const area=document.getElementById("practiceArea");
+  if(!session || session.i>=session.questions.length){ finishSession(); return; }
+  const q=session.questions[session.i];
+  const head=`<p class="status">${session.i+1}/${session.total} · đúng ${session.correct}</p>`;
+  area.innerHTML=head+examAICard(q);
+  bindExamAICard(q);
+}
+function examAICard(q){
+  const letters=["A","B","C","D"];
+  const optHtml=q.options.map((o,i)=>`<button class="opt" data-i="${i}">
+      <b style="color:var(--red);margin-right:8px">${letters[i]}.</b><span class="han" style="font-size:18px">${esc(o)}</span></button>`).join("");
+  const hint=(q.stem_pinyin||q.stem_vi)?
+    `<details class="card" style="margin-top:8px;text-align:left;padding:8px 12px">
+       <summary class="small muted" style="cursor:pointer">💡 Gợi ý (pinyin · nghĩa)</summary>
+       <div class="small" style="margin-top:4px">
+         ${q.stem_pinyin?`<div class="pinyin">${esc(q.stem_pinyin)}</div>`:""}
+         ${q.stem_vi?`<div class="muted">${esc(q.stem_vi)}</div>`:""}</div></details>`:"";
+  return `<div class="flash" style="min-height:auto;padding:18px;text-align:center">
+      <div class="word-han" style="font-size:24px;line-height:1.6">${esc(q.stem)}</div>
+      ${speakBtn(q.stem.replace(/[＿_]+/g,""))}
+      ${hint}
+    </div>
+    <div id="optWrap" style="margin-top:12px">${optHtml}</div>
+    <div id="examExplain" style="margin-top:12px"></div>`;
+}
+function bindExamAICard(q){
+  const wrap=document.getElementById("optWrap");
+  const exp=document.getElementById("examExplain");
+  wrap.addEventListener("click",e=>{
+    const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
+    wrap.dataset.done="1";
+    const pick=+b.dataset.i, ok=pick===q.correct;
+    wrap.querySelectorAll(".opt").forEach((o,i)=>{
+      if(i===q.correct) o.classList.add("correct");
+      else if(i===pick) o.classList.add("wrong");
+    });
+    if(ok) session.correct++;
+    if(q.target && WORDS.some(w=>w.w===q.target)) review(q.target, ok?2:0);
+    speak((q.options[q.correct]||"").replace(/[＿_]+/g,""));
+    const last=session.i+1>=session.total;
+    exp.innerHTML=`<div class="card" style="border-color:${ok?'var(--green)':'var(--bad)'};background:${ok?'var(--green-bg)':'var(--bad-bg)'}">
+        <b style="color:${ok?'var(--green)':'var(--bad)'}">${ok?'✓ Chính xác!':'✗ Chưa đúng.'}</b>
+        <div class="small" style="margin-top:6px;line-height:1.5">${esc(q.explain||"")}</div></div>
+      <button class="btn btn-primary" id="examNext" style="margin-top:4px">${last?'Xem kết quả →':'Câu tiếp →'}</button>`;
+    document.getElementById("examNext").onclick=advance;
+    setTimeout(()=>exp.scrollIntoView({block:"center",behavior:"smooth"}),40);
+  });
 }
 /* ---- Tập viết chữ Hán (Hanzi Writer) ---- */
 function hanChars(w){ return (w.match(/[㐀-鿿]/g)||[]); }
@@ -929,7 +1094,7 @@ function bindCard(x){
     });
   }
 }
-function advance(){ session.i++; nextCard(); }
+function advance(){ session.i++; if(session && session.ai) nextExam(); else nextCard(); }
 function finishSession(){
   const pct = session.total? Math.round(session.correct/session.total*100):0;
   document.getElementById("practiceArea").innerHTML=`<div class="card" style="text-align:center">
@@ -939,6 +1104,66 @@ function finishSession(){
     <button class="btn btn-primary" style="margin-top:10px" onclick="startSession('${session.mode}','${pScope}')">Làm tiếp</button>
   </div>`;
   session=null;
+}
+
+/* ---- 📝 Dịch câu: AI tạo câu tiếng Trung, bấm để hiện phiên âm + dịch + từ vựng ---- */
+async function startTranslate(scope){
+  session=null;
+  const area=document.getElementById("practiceArea");
+  const level=levelFromScope(scope);
+  if(!PROXY_URL){
+    area.innerHTML=`<div class="card"><p class="small" style="color:var(--bad);font-weight:600">Tính năng này cần AI.</p>
+      <p class="small muted">Hãy điền <code>PROXY_URL</code> trong index.html (proxy Vercel <code>/api/chinese</code>) để bật.</p></div>`;
+    return;
+  }
+  area.innerHTML=`<div class="card" style="text-align:center">
+    <div class="word-han" style="font-size:34px">⏳</div>
+    <p style="margin:8px 0">Đang tạo 5 câu ${esc(level)} để luyện dịch…</p>
+    <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
+  try{
+    const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({task:"sentences", n:5, level, provider:state.settings.provider})});
+    const j=await r.json();
+    if(j.error) throw new Error(j.error);
+    const sents=(j.sentences||[]).filter(s=>s&&s.zh).slice(0,5);
+    if(sents.length===0) throw new Error("AI không trả câu nào hợp lệ");
+    renderTranslate(sents, scope, level);
+  }catch(err){
+    area.innerHTML=`<div class="card">
+      <p class="small" style="color:var(--bad);font-weight:600">Không tạo được câu: ${esc(err.message)}</p>
+      <button class="btn btn-primary" style="margin-top:10px" onclick="startTranslate('${scope}')">Thử lại</button></div>`;
+  }
+}
+function transReveal(s){
+  const vocab=(s.vocab||[]).map(v=>
+    `<li>「<span class="han">${esc(v.w)}</span>」 <span class="muted">/${esc(v.p)}/</span> = ${esc(v.vi)}</li>`).join("");
+  return `<div class="pinyin" style="font-size:16px;margin-top:8px">${esc(s.pinyin)}</div>
+    <div class="meaning" style="margin-top:2px">${esc(s.vi)}</div>
+    ${vocab?`<div class="small muted" style="margin-top:8px">Từ vựng trong câu:</div>
+      <ul class="small" style="margin:4px 0 0;padding-left:18px;line-height:1.7">${vocab}</ul>`:""}`;
+}
+function renderTranslate(sents, scope, level){
+  const cards=sents.map((s,i)=>`<div class="card">
+      <div class="row spread" style="align-items:flex-start;gap:8px">
+        <div class="word-han" style="font-size:24px;line-height:1.5;flex:1">${esc(s.zh)}</div>
+        ${speakBtn(s.zh)}
+      </div>
+      <button class="btn btn-ghost btn-sm" data-trans="${i}" style="margin-top:8px">👁 Dịch nghĩa</button>
+      <div id="trans-${i}" style="display:none">${transReveal(s)}</div>
+    </div>`).join("");
+  const area=document.getElementById("practiceArea");
+  area.innerHTML=`<p class="status">5 câu ${esc(level)} · bấm “Dịch nghĩa” từng câu</p>
+    ${cards}
+    <button class="btn btn-primary" id="transMore" style="margin-top:6px">↻ Tạo 5 câu khác</button>`;
+  area.querySelectorAll("button[data-trans]").forEach(b=>{
+    b.onclick=()=>{
+      const box=document.getElementById("trans-"+b.dataset.trans);
+      const show=box.style.display==="none";
+      box.style.display=show?"block":"none";
+      b.textContent=show?"🙈 Ẩn nghĩa":"👁 Dịch nghĩa";
+    };
+  });
+  document.getElementById("transMore").onclick=()=>startTranslate(scope);
 }
 
 /* ====================================================================
