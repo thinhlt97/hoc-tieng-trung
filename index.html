@@ -238,8 +238,10 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
       </div>
       <div class="row" style="margin-top:12px">
         <button class="btn btn-primary" id="startPractice">Bắt đầu</button>
+        <button class="btn btn-ghost" id="viewScopeList">👁 Xem danh sách từ</button>
         <span class="status" id="practiceScopeInfo"></span>
       </div>
+      <div id="scopeListBox" style="display:none;margin-top:12px"></div>
     </div>
     <div id="practiceArea"></div>
   </section>
@@ -688,14 +690,41 @@ document.getElementById("practiceModes").addEventListener("click",e=>{
   pMode=b.dataset.m;
   document.querySelectorAll("#practiceModes .chip").forEach(x=>x.classList.toggle("active",x===b));
   updateScopeInfo();
+  if(document.getElementById("scopeListBox").style.display!=="none") renderScopeList();
 });
 document.querySelector("#practiceScopeCard .chips").addEventListener("click",e=>{
   const b=e.target.closest("button[data-scope]"); if(!b) return;
   pScope=b.dataset.scope;
   document.querySelectorAll("#practiceScopeCard .chip").forEach(x=>x.classList.toggle("active",x===b));
   updateScopeInfo();
+  if(document.getElementById("scopeListBox").style.display!=="none") renderScopeList();
 });
 document.getElementById("startPractice").onclick=()=>startSession(pMode,pScope);
+document.getElementById("viewScopeList").onclick=function(){
+  const box=document.getElementById("scopeListBox");
+  if(box.style.display!=="none"){ box.style.display="none"; this.textContent="👁 Xem danh sách từ"; return; }
+  renderScopeList(); box.style.display="block"; this.textContent="✕ Ẩn danh sách";
+};
+function renderScopeList(){
+  const box=document.getElementById("scopeListBox");
+  if(pMode==="translate"){
+    box.innerHTML=`<p class="small muted">Kiểu “📝 Dịch câu” tạo câu bằng AI, không dùng danh sách từ cố định.</p>`;
+    return;
+  }
+  const words=scopeWords(pScope);
+  if(words.length===0){ box.innerHTML=`<p class="small muted">Không có từ nào trong phạm vi này.</p>`; return; }
+  const rows=words.map(x=>{
+    const c=state.progress[x.w];
+    const badge = c ? (c.status==="known"?`<span class="cat">✓ thuộc</span>`:`<span class="cat">đang học</span>`) : "";
+    return `<div class="card" style="padding:10px 12px;margin:0">
+      <div class="row"><span class="word-han" style="font-size:26px">${x.w}</span> ${speakBtn(x.w)} ${writeBtn(x.w)}</div>
+      <div class="pinyin">${x.p} <span class="pos">${x.pos}</span> ${badge}</div>
+      <div class="meaning">${esc(x.vi)}</div>
+    </div>`;
+  }).join("");
+  box.innerHTML=`<p class="small muted" style="margin:0 0 8px">${words.length} từ sẽ được luyện tập (phạm vi hiện tại):</p>
+    <div style="display:grid;gap:8px">${rows}</div>`;
+}
 function goPractice(mode,scope){
   document.querySelector('#tabs button[data-v="practice"]').click();
   pMode=mode; pScope=scope;
@@ -724,6 +753,8 @@ function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){const j=Math.ran
 
 let session=null;
 function startSession(mode,scope){
+  const slb=document.getElementById("scopeListBox");
+  if(slb){ slb.style.display="none"; document.getElementById("viewScopeList").textContent="👁 Xem danh sách từ"; }
   if(mode==="exam"){ startExam(scope); return; }
   if(mode==="translate"){ startTranslate(scope); return; }
   let pool=shuffle(scopeWords(scope));
