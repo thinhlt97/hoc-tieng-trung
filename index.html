@@ -170,7 +170,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
     <span class="zh">汉语</span>
     <span class="sub">Học tiếng Trung mỗi ngày · mục tiêu HSK5</span>
   </div>
-  <button class="syncbtn" id="syncBtn">☁ Đồng bộ</button>
+  <span class="syncbtn" id="syncBtn" title="Tiến độ tự lưu">☁ Tự lưu</span>
 </header>
 
 <nav id="tabs">
@@ -280,12 +280,12 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
 
     <div class="card">
       <b>Đồng bộ đa thiết bị</b>
-      <p class="small muted">Nhập cùng một <b>mã cá nhân</b> trên điện thoại &amp; máy tính để dùng chung tiến độ.</p>
+      <p class="small muted">Nhập cùng một <b>mã cá nhân</b> trên điện thoại &amp; máy tính để dùng chung tiến độ. Sau khi có mã, tiến độ <b>tự lưu lên máy chủ</b> — không cần bấm gì.</p>
       <label class="field">Mã cá nhân</label>
       <input class="text" id="codeInput" placeholder="ví dụ: thinh-hsk-2026" />
       <div class="row wrap" style="margin-top:10px">
         <button class="btn btn-primary btn-sm" id="pullBtn">⬇ Kéo từ máy chủ</button>
-        <button class="btn btn-gold btn-sm" id="pushBtn">⬆ Lưu lên máy chủ</button>
+        <button class="btn btn-gold btn-sm" id="pushBtn">⬆ Lưu ngay</button>
         <span class="status" id="syncStatus"></span>
       </div>
       <p class="small muted" id="syncConfigNote" style="margin-top:8px"></p>
@@ -370,7 +370,13 @@ function save(){
   state.updatedAt = Date.now();
   localStorage.setItem(LS_KEY, JSON.stringify(state));
 }
-function markDirty(){ dirty=true; updateSyncBtn(); }
+function markDirty(){ dirty=true; updateSyncBtn(); scheduleAutoSync(); }
+let autoSyncTimer=null;
+function scheduleAutoSync(){
+  if(!VOCAB_URL || !state.code) return;   // chưa cấu hình đồng bộ ⇒ chỉ lưu localStorage
+  clearTimeout(autoSyncTimer);
+  autoSyncTimer=setTimeout(()=>{ syncPush(true); }, 2500);
+}
 
 /* ====================================================================
  * SRS (kiểu SM-2 rút gọn). grade: 0=again 1=hard 2=good
@@ -1314,27 +1320,34 @@ document.getElementById("testVoice").onclick=()=>speak("你好，世界");
 
 document.getElementById("pullBtn").onclick=()=>syncPull();
 document.getElementById("pushBtn").onclick=()=>syncPush();
-document.getElementById("syncBtn").onclick=async()=>{ await syncPush(); };
 
 function updateSyncBtn(){
-  const b=document.getElementById("syncBtn");
+  const b=document.getElementById("syncBtn"); if(!b) return;
+  if(!VOCAB_URL || !state.code){ b.classList.remove("dirty"); b.textContent="☁ Lưu trên máy"; return; }
   b.classList.toggle("dirty",dirty);
-  b.textContent = dirty? "☁ Lưu*" : "☁ Đồng bộ";
+  b.textContent = dirty? "☁ Đang lưu…" : "☁ Đã lưu";
 }
 function setSync(msg){ const e=document.getElementById("syncStatus"); if(e) e.textContent=msg; }
 
-async function syncPush(){
-  if(!VOCAB_URL){ toast("Chưa cấu hình máy chủ đồng bộ"); return; }
-  if(!state.code){ toast("Hãy nhập mã cá nhân ở tab Cài đặt"); return; }
+async function syncPush(auto){
+  if(!VOCAB_URL){ if(!auto) toast("Chưa cấu hình máy chủ đồng bộ"); return; }
+  if(!state.code){ if(!auto) toast("Hãy nhập mã cá nhân ở tab Cài đặt"); return; }
   save(); setSync("Đang lưu…");
   try{
     const r=await fetch(VOCAB_URL+"?code="+encodeURIComponent(state.code),{
       method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({data:state})});
     const j=await r.json(); if(j.error) throw new Error(j.error);
-    dirty=false; updateSyncBtn(); setSync("Đã lưu lúc "+new Date().toLocaleTimeString()); toast("Đã đồng bộ lên máy chủ");
-  }catch(e){ setSync("Lỗi: "+e.message); toast("Lỗi đồng bộ"); }
+    dirty=false; updateSyncBtn(); setSync("Đã lưu lúc "+new Date().toLocaleTimeString());
+    if(!auto) toast("Đã đồng bộ lên máy chủ");
+  }catch(e){ setSync("Lỗi: "+e.message); if(!auto) toast("Lỗi đồng bộ"); }
 }
+// Lưu nốt khi rời trang (tránh mất thay đổi trong lúc chờ tự lưu)
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="hidden" && dirty && VOCAB_URL && state.code){
+    clearTimeout(autoSyncTimer); syncPush(true);
+  }
+});
 async function syncPull(){
   if(!VOCAB_URL){ toast("Chưa cấu hình máy chủ đồng bộ"); return; }
   if(!state.code){ toast("Hãy nhập mã cá nhân ở tab Cài đặt"); return; }
