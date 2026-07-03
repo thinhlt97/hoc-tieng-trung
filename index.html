@@ -490,7 +490,7 @@ function speakBtn(text){ return `<button class="speak" onclick="speak('${text.re
 /* nút ✍ cạnh mỗi từ: bấm để hiện/ẩn ô chạy thứ tự nét ngay tại chỗ */
 function writeBtn(text){ return `<button class="speak" title="Xem cách viết" onclick="showStrokeGuide(this,'${text.replace(/'/g,"\\'")}')">✍</button>`; }
 function showStrokeGuide(btn, word){
-  const card = btn.closest(".card"); if(!card) return;
+  const card = btn.closest(".card,.flash"); if(!card) return;
   const old = card.querySelector(":scope > .hz-guide");
   if(old){ old.remove(); return; }          // bấm lần nữa để ẩn
   if(typeof HanziWriter==="undefined"){ toast("Chưa tải được thư viện viết chữ (cần mạng lần đầu)"); return; }
@@ -792,7 +792,7 @@ function normPinyin(s){
 function typeCard(x){
   return `<div class="flash" style="min-height:auto; padding:18px">
     <button class="speak" style="width:64px;height:64px;font-size:28px" onclick="speak('${x.w.replace(/'/g,"\\'")}')">🔊</button>
-    <p class="small muted">Nghe rồi gõ pinyin (không cần dấu thanh)</p>
+    <p class="small muted">Nghe rồi gõ pinyin bằng chữ thường, <b>không cần dấu thanh</b> — ví dụ gõ <b>ni hao</b> (不用声调, gõ như tiếng Anh)</p>
     <input class="text" id="pyInput" autocomplete="off" autocapitalize="off" spellcheck="false"
       placeholder="ví dụ: ni hao" style="text-align:center;font-size:18px;max-width:280px;margin:6px auto 0" />
     <div id="pyFeedback" style="margin-top:10px"></div>
@@ -811,7 +811,9 @@ function bindTypeCard(x){
     inp.disabled=true; btn.style.display="none";
     if(ok) session.correct++;
     fb.innerHTML=`<div style="font-weight:700;color:${ok?'var(--green)':'var(--bad)'}">${ok?'✓ Chính xác!':'✗ Chưa đúng'}</div>
-      <div class="word-han" style="font-size:30px;margin-top:6px">${x.w}</div>
+      <div class="word-han" style="font-size:30px;margin-top:6px;cursor:pointer" title="Bấm để xem cách viết"
+        onclick="showStrokeGuide(this,'${x.w.replace(/'/g,"\\'")}')">${x.w}</div>
+      <div class="small muted" style="margin-top:2px">👆 bấm chữ Hán để xem cách viết</div>
       <div class="pinyin" style="font-size:18px">${x.p}</div>
       <div class="meaning">${esc(x.vi)}</div>
       <button class="btn btn-primary" id="pyNext" style="margin-top:12px">Tiếp theo →</button>`;
