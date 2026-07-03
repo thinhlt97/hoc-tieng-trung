@@ -776,9 +776,12 @@ function bindTypeCard(x){
     fb.innerHTML=`<div style="font-weight:700;color:${ok?'var(--green)':'var(--bad)'}">${ok?'✓ Chính xác!':'✗ Chưa đúng'}</div>
       <div class="word-han" style="font-size:30px;margin-top:6px">${x.w}</div>
       <div class="pinyin" style="font-size:18px">${x.p}</div>
-      <div class="meaning">${esc(x.vi)}</div>`;
+      <div class="meaning">${esc(x.vi)}</div>
+      <button class="btn btn-primary" id="pyNext" style="margin-top:12px">Tiếp theo →</button>`;
     review(x.w, ok?2:0);
-    setTimeout(advance, ok?900:1800);
+    const nx=document.getElementById("pyNext");
+    nx.onclick=advance;
+    setTimeout(()=>nx.focus(), 50);
   }
   btn.onclick=check;
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") check(); });
