@@ -785,16 +785,36 @@ function nextCard(){
   else { area.innerHTML=head+quizCard(x, session.mode); bindCard(x); }
 }
 /* ---- Nghe → gõ pinyin ---- */
-function normPinyin(s){
+function normPinyin(s){   // bỏ dấu thanh — dùng để nhận biết "đúng âm nhưng sai dấu"
   return (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"")
     .replace(/ü/g,"u").replace(/v/g,"u").replace(/[^a-z]/g,"");
 }
+function normPinyinStrict(s){ // so khớp chặt: giữ dấu thanh, chuẩn hóa hoa/thường + khoảng trắng
+  return (s||"").trim().toLowerCase().replace(/\s+/g," ").normalize("NFC");
+}
+/* Đổi pinyin gõ bằng SỐ thanh điệu -> dấu: ni3 hao3 => nǐ hǎo ; lv3 => nǚ ; u:3 => ü */
+const _TONEMAP={ a:["ā","á","ǎ","à"], e:["ē","é","ě","è"], i:["ī","í","ǐ","ì"],
+  o:["ō","ó","ǒ","ò"], u:["ū","ú","ǔ","ù"], "ü":["ǖ","ǘ","ǚ","ǜ"] };
+function _toneSyllable(syl, tone){
+  let s=syl.replace(/u:/gi,"ü").replace(/v/gi,"ü");
+  if(!(tone>=1&&tone<=4)) return s;              // thanh nhẹ (5/0) hoặc không có số => giữ nguyên
+  const low=s.toLowerCase(); let idx=-1;
+  if(low.includes("a")) idx=low.indexOf("a");
+  else if(low.includes("e")) idx=low.indexOf("e");
+  else if(low.includes("ou")) idx=low.indexOf("o");
+  else { const m=low.match(/[aeiouü]/g); if(m){ const last=m[m.length-1]; idx=low.lastIndexOf(last); } }
+  if(idx<0) return s;
+  const rep=(_TONEMAP[low[idx]]||[])[tone-1];
+  return rep ? s.slice(0,idx)+rep+s.slice(idx+1) : s;
+}
+function pyNumToTone(text){ return (text||"").replace(/([a-zü:]+)([0-5])/gi,(m,syl,t)=>_toneSyllable(syl,+t)); }
 function typeCard(x){
   return `<div class="flash" style="min-height:auto; padding:18px">
     <button class="speak" style="width:64px;height:64px;font-size:28px" onclick="speak('${x.w.replace(/'/g,"\\'")}')">🔊</button>
-    <p class="small muted">Nghe rồi gõ pinyin bằng chữ thường, <b>không cần dấu thanh</b> — ví dụ gõ <b>ni hao</b> (不用声调, gõ như tiếng Anh)</p>
+    <p class="small muted">Nghe rồi gõ pinyin <b>có dấu thanh</b>. Mẹo: gõ <b>số 1–4 sau vần</b> sẽ tự thành dấu —
+      ví dụ <b>ni3 hao3</b> → <b>nǐ hǎo</b> (thanh nhẹ: bỏ số hoặc gõ 5; chữ ü gõ <b>v</b> hoặc <b>u:</b>)</p>
     <input class="text" id="pyInput" autocomplete="off" autocapitalize="off" spellcheck="false"
-      placeholder="ví dụ: ni hao" style="text-align:center;font-size:18px;max-width:280px;margin:6px auto 0" />
+      placeholder="ví dụ: ni3 hao3" style="text-align:center;font-size:18px;max-width:280px;margin:6px auto 0" />
     <div id="pyFeedback" style="margin-top:10px"></div>
     <button class="btn btn-primary" id="pyCheck" style="margin-top:10px">Kiểm tra</button>
   </div>`;
@@ -804,20 +824,28 @@ function bindTypeCard(x){
   const fb=document.getElementById("pyFeedback");
   const btn=document.getElementById("pyCheck");
   setTimeout(()=>{ speak(x.w); inp.focus(); }, 150);
+  // Gõ số thanh điệu -> tự đổi thành dấu ngay trong ô nhập
+  inp.addEventListener("input",()=>{
+    const conv=pyNumToTone(inp.value);
+    if(conv!==inp.value){ inp.value=conv; }
+  });
   let done=false;
   function check(){
     if(done) return; done=true;
-    const ok = normPinyin(inp.value)===normPinyin(x.p);
+    const ans=pyNumToTone(inp.value);
+    const ok   = normPinyinStrict(ans)===normPinyinStrict(x.p);
+    const near = !ok && normPinyin(ans)===normPinyin(x.p);  // đúng âm, sai/thiếu dấu thanh
     inp.disabled=true; btn.style.display="none";
     if(ok) session.correct++;
-    fb.innerHTML=`<div style="font-weight:700;color:${ok?'var(--green)':'var(--bad)'}">${ok?'✓ Chính xác!':'✗ Chưa đúng'}</div>
+    const verdict = ok ? '✓ Chính xác!' : (near ? '✗ Đúng âm nhưng sai dấu thanh' : '✗ Chưa đúng');
+    fb.innerHTML=`<div style="font-weight:700;color:${ok?'var(--green)':'var(--bad)'}">${verdict}</div>
       <div class="word-han" style="font-size:30px;margin-top:6px;cursor:pointer" title="Bấm để xem cách viết"
         onclick="showStrokeGuide(this,'${x.w.replace(/'/g,"\\'")}')">${x.w}</div>
       <div class="small muted" style="margin-top:2px">👆 bấm chữ Hán để xem cách viết</div>
       <div class="pinyin" style="font-size:18px">${x.p}</div>
       <div class="meaning">${esc(x.vi)}</div>
       <button class="btn btn-primary" id="pyNext" style="margin-top:12px">Tiếp theo →</button>`;
-    review(x.w, ok?2:0);
+    review(x.w, ok?2:(near?1:0));
     const nx=document.getElementById("pyNext");
     nx.onclick=advance;
     setTimeout(()=>nx.focus(), 50);
