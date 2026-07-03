@@ -830,6 +830,10 @@ function bindTypeCard(x){
     if(conv!==inp.value){ inp.value=conv; }
   });
   let done=false;
+  function nextBtn(){
+    const nx=el(`<button class="btn btn-primary" style="margin-top:12px">Tiếp theo →</button>`);
+    nx.onclick=advance; setTimeout(()=>nx.focus(),50); return nx;
+  }
   function check(){
     if(done) return; done=true;
     const ans=pyNumToTone(inp.value);
@@ -843,12 +847,32 @@ function bindTypeCard(x){
         onclick="showStrokeGuide(this,'${x.w.replace(/'/g,"\\'")}')">${x.w}</div>
       <div class="small muted" style="margin-top:2px">👆 bấm chữ Hán để xem cách viết</div>
       <div class="pinyin" style="font-size:18px">${x.p}</div>
-      <div class="meaning">${esc(x.vi)}</div>
-      <button class="btn btn-primary" id="pyNext" style="margin-top:12px">Tiếp theo →</button>`;
+      <div class="meaning">${esc(x.vi)}</div>`;
     review(x.w, ok?2:(near?1:0));
-    const nx=document.getElementById("pyNext");
-    nx.onclick=advance;
-    setTimeout(()=>nx.focus(), 50);
+    if(ok){ fb.appendChild(nextBtn()); return; }
+    // SAI: hiện đáp án rồi buộc gõ lại cho đúng mới được sang câu khác
+    const retry=el(`<div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)">
+        <p class="small muted">Gõ lại <b>${x.p}</b> cho đúng để tiếp tục:</p>
+        <input class="text" id="pyRetry" autocomplete="off" autocapitalize="off" spellcheck="false"
+          placeholder="gõ lại pinyin có dấu (vd: ${x.p.replace(/'/g,"")})" style="text-align:center;font-size:18px;max-width:280px;margin:6px auto 0" />
+        <div id="pyRetryFb" class="small" style="margin-top:6px;min-height:18px"></div>
+      </div>`);
+    fb.appendChild(retry);
+    const rin=retry.querySelector("#pyRetry");
+    const rfb=retry.querySelector("#pyRetryFb");
+    setTimeout(()=>rin.focus(),60);
+    rin.addEventListener("input",()=>{ const c=pyNumToTone(rin.value); if(c!==rin.value) rin.value=c; });
+    function retryCheck(){
+      const rans=pyNumToTone(rin.value);
+      if(normPinyinStrict(rans)===normPinyinStrict(x.p)){
+        rin.disabled=true;
+        rfb.innerHTML=`<span style="color:var(--green);font-weight:700">✓ Đúng rồi!</span>`;
+        retry.appendChild(nextBtn());
+      }else{
+        rfb.innerHTML=`<span style="color:var(--bad)">Chưa khớp, thử lại cho đúng: <b>${x.p}</b></span>`;
+      }
+    }
+    rin.addEventListener("keydown",e=>{ if(e.key==="Enter") retryCheck(); });
   }
   btn.onclick=check;
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") check(); });
