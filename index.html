@@ -518,6 +518,19 @@ function toast(msg){
   clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),2200);
 }
 function speakBtn(text){ return `<button class="speak" onclick="speak('${text.replace(/'/g,"\\'")}')">🔊</button>`; }
+function copyText(text){
+  const done=()=>toast("Đã sao chép: "+text);
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done));
+  } else fallbackCopy(text,done);
+}
+function fallbackCopy(text,done){
+  try{ const ta=document.createElement("textarea"); ta.value=text;
+    ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta);
+    ta.select(); document.execCommand("copy"); document.body.removeChild(ta); done();
+  }catch(e){ toast("Không sao chép được — hãy bôi đen để copy"); }
+}
+function copyBtn(text){ return `<button class="speak" title="Sao chép chữ Hán" onclick="copyText('${text.replace(/'/g,"\\'")}')">📋</button>`; }
 /* nút ✍ cạnh mỗi từ: bấm để hiện/ẩn ô chạy thứ tự nét ngay tại chỗ */
 function writeBtn(text){ return `<button class="speak" title="Xem cách viết" onclick="showStrokeGuide(this,'${text.replace(/'/g,"\\'")}')">✍</button>`; }
 function showStrokeGuide(btn, word){
@@ -604,7 +617,7 @@ function renderToday(){
           <div class="pinyin">${x.p} <span class="pos">${x.pos}</span> <span class="cat">HSK${x.lv}</span></div>
           <div class="meaning">${esc(x.vi)}</div>
         </div>
-        <div class="row">${speakBtn(x.w)} ${writeBtn(x.w)}</div>
+        <div class="row">${speakBtn(x.w)} ${writeBtn(x.w)} ${copyBtn(x.w)}</div>
       </div>
     </div>`);
     const seenBtn=el(`<button class="btn btn-primary btn-sm" style="margin-top:8px">✓ Ôn tập — đưa vào Nhóm 1</button>`);
@@ -646,7 +659,7 @@ function renderReview(){
       const row=el(`<div class="card" style="padding:10px 12px;margin:0;box-shadow:none">
         <div class="row spread wrap">
           <div>
-            <div class="row"><span class="word-han" style="font-size:26px">${x.w}</span> ${speakBtn(x.w)} ${writeBtn(x.w)}</div>
+            <div class="row"><span class="word-han" style="font-size:26px">${x.w}</span> ${speakBtn(x.w)} ${writeBtn(x.w)} ${copyBtn(x.w)}</div>
             <div class="pinyin">${x.p} <span class="pos">${x.pos}</span> <span class="cat">HSK${x.lv}</span></div>
             <div class="meaning">${esc(x.vi)}</div>
           </div>
@@ -691,6 +704,9 @@ function aiBlock(x){
  * TỪ VỰNG
  * ==================================================================== */
 let vFilter={level:"all", cat:"all", q:""};
+document.getElementById("vocabSearch").addEventListener("input",e=>{
+  vFilter.q=e.target.value.trim(); renderVocab();
+});
 function renderVocab(){
   const levels=[...new Set(WORDS.map(w=>w.lv))].sort();
   const lvWrap=document.getElementById("vocabLevels");
@@ -717,7 +733,7 @@ function renderVocab(){
     const row=el(`<div class="card">
       <div class="row spread wrap">
         <div>
-          <div class="row"><span class="word-han">${x.w}</span> ${speakBtn(x.w)} ${writeBtn(x.w)}</div>
+          <div class="row"><span class="word-han">${x.w}</span> ${speakBtn(x.w)} ${writeBtn(x.w)} ${copyBtn(x.w)}</div>
           <div class="pinyin">${x.p} <span class="pos">${x.pos}</span> <span class="cat">${x.cat}</span> ${badge}</div>
           <div class="meaning">${esc(x.vi)}</div>
         </div>
@@ -752,7 +768,7 @@ function renderSentences(){
           <div class="pinyin">${s.p}</div>
           <div class="meaning">${esc(s.vi)}</div>
         </div>
-        ${speakBtn(s.w)}
+        <div class="row">${speakBtn(s.w)} ${copyBtn(s.w)}</div>
       </div>
     </div>`));
   });
@@ -917,9 +933,12 @@ function bindTypeCard(x){
     if(ok) session.correct++;
     const verdict = ok ? '✓ Chính xác!' : (near ? '✗ Đúng âm nhưng sai dấu thanh' : '✗ Chưa đúng');
     fb.innerHTML=`<div style="font-weight:700;color:${ok?'var(--green)':'var(--bad)'}">${verdict}</div>
-      <div class="word-han" style="font-size:30px;margin-top:6px;cursor:pointer" title="Bấm để xem cách viết"
-        onclick="showStrokeGuide(this,'${x.w.replace(/'/g,"\\'")}')">${x.w}</div>
-      <div class="small muted" style="margin-top:2px">👆 bấm chữ Hán để xem cách viết</div>
+      <div class="row" style="justify-content:center;gap:6px;margin-top:6px">
+        <span class="word-han" style="font-size:30px;cursor:pointer;user-select:text;-webkit-user-select:text" title="Bấm để xem cách viết (có thể bôi đen để copy)"
+          onclick="showStrokeGuide(this,'${x.w.replace(/'/g,"\\'")}')">${x.w}</span>
+        ${copyBtn(x.w)}
+      </div>
+      <div class="small muted" style="margin-top:2px">👆 bấm chữ Hán để xem cách viết · bôi đen hoặc bấm 📋 để sao chép</div>
       <div class="pinyin" style="font-size:18px">${x.p}</div>
       <div class="meaning">${esc(x.vi)}</div>`;
     logReview(x.w, ok);
@@ -953,8 +972,8 @@ function bindTypeCard(x){
 }
 function flashCard(x){
   return `<div class="flash" id="flashCard">
-    <div class="word-han big">${x.w}</div>
-    ${speakBtn(x.w)}
+    <div class="word-han big" style="user-select:text;-webkit-user-select:text">${x.w}</div>
+    <div class="row">${speakBtn(x.w)} ${copyBtn(x.w)}</div>
     <div id="flashBack" style="display:none">
       <div class="pinyin" style="font-size:18px">${x.p}</div>
       <div class="meaning">${esc(x.vi)} <span class="pos">${x.pos}</span></div>
