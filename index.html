@@ -581,6 +581,7 @@ function render(v){
   if(v==="vocab") renderVocab();
   if(v==="review") renderReview();
   if(v==="sentences") renderSentences();
+  if(v==="practice") renderPracticeHome();
   if(v==="progress") renderProgress();
   if(v==="settings") renderSettings();
 }
@@ -831,30 +832,114 @@ function updateScopeInfo(){
 function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];} return a; }
 
 let session=null;
+let transState=null;                        // {sents,level} khi đang ở kiểu "Dịch câu" (session=null)
 const emptyReviewHtml=`<div class="empty"><span class="em">空</span>Chưa có từ nào trong “Từ đang ôn”.<br>Vào tab <b>Hôm nay</b> bấm “Ôn tập” để đưa từ vào Nhóm 1.</div>`;
+
+/* ---- Lưu / khôi phục bài luyện tập đang làm dở (localStorage, chỉ trên máy này) ---- */
+const PRAC_KEY = LS_KEY + "_practice";
+const MODE_NAMES = { flash:"Flashcard", zh2vi:"Chữ Hán → nghĩa", vi2zh:"Nghĩa → chữ Hán",
+  listen:"Nghe & chọn", typepy:"Nghe → gõ pinyin", write:"Tập viết",
+  exam:"Trắc nghiệm 5 câu", translate:"Dịch câu" };
+function snapshotCard(){        // đọc trạng thái câu đang làm từ DOM
+  const m=session.mode;
+  if(m==="flash"){ const gr=document.getElementById("gradeRow"); return {flipped: !!(gr && gr.style.display!=="none")}; }
+  if(m==="typepy"){
+    const inp=document.getElementById("pyInput"); if(!inp) return {};
+    return { value: inp.value, checked: inp.disabled };
+  }
+  if(m==="write") return {};   // Hanzi Writer không lưu được giữa nét → khôi phục lại từ đầu chữ đang viết
+  const wrap=document.getElementById("optWrap"); if(!wrap) return {};
+  if(session.ai) return { done: !!wrap.dataset.done,
+    picked: (wrap.dataset.picked!==undefined && wrap.dataset.picked!=="") ? +wrap.dataset.picked : null };
+  return { opts:[...wrap.querySelectorAll(".opt")].map(o=>o.dataset.w),
+    done: !!wrap.dataset.done, picked: wrap.dataset.picked||null };
+}
+function snapshotPractice(){
+  if(transState){
+    const revealed=[...document.querySelectorAll('#practiceArea [id^="trans-"]')].map(x=>x.style.display!=="none");
+    return {mode:"translate", sents:transState.sents, level:transState.level, revealed};
+  }
+  if(!session || session.i>=session.total) return null;
+  const b={mode:session.mode, i:session.i, correct:session.correct, total:session.total, ai:!!session.ai};
+  if(session.ai) b.questions=session.questions;
+  else if(session.pool) b.poolW=session.pool.map(o=>o.w);
+  b.card=snapshotCard();
+  return b;
+}
+function savePractice(){
+  try{ const b=snapshotPractice();
+    if(b) localStorage.setItem(PRAC_KEY, JSON.stringify(b));
+    else localStorage.removeItem(PRAC_KEY);
+  }catch(e){}
+}
+function loadPractice(){ try{ return JSON.parse(localStorage.getItem(PRAC_KEY)); }catch(e){ return null; } }
+function clearPractice(){ try{ localStorage.removeItem(PRAC_KEY); }catch(e){} }
+function resumePractice(){
+  const b=loadPractice();
+  if(!b){ toast("Không còn bài đang làm dở"); renderPracticeHome(); return; }
+  const slb=document.getElementById("scopeListBox");
+  if(slb){ slb.style.display="none"; document.getElementById("viewScopeList").textContent="👁 Xem từ sẽ luyện"; }
+  if(b.mode==="translate"){
+    session=null; transState={sents:b.sents, level:b.level};
+    renderTranslate(b.sents, b.level, b.revealed||[]);
+    return;
+  }
+  transState=null;
+  if(b.ai){
+    if(!b.questions || !b.questions.length){ clearPractice(); toast("Bài dở không khôi phục được"); renderPracticeHome(); return; }
+    session={mode:b.mode, ai:true, questions:b.questions, i:b.i, correct:b.correct, total:b.total};
+    nextExam(b.card||{});
+    return;
+  }
+  const pool=(b.poolW||[]).map(w=>WORDS.find(o=>o.w===w)).filter(Boolean);
+  if(!pool.length){ clearPractice(); toast("Bài dở không khôi phục được (dữ liệu từ đã đổi)"); renderPracticeHome(); return; }
+  session={mode:b.mode, pool, i:Math.min(b.i,pool.length), correct:b.correct, total:b.total||pool.length};
+  if(b.mode==="exam") session.ai=false;
+  nextCard(b.card||{});
+}
+function renderPracticeHome(){
+  if(session || transState) return;          // đang có phiên chạy trong bộ nhớ → giữ nguyên màn hình
+  const area=document.getElementById("practiceArea");
+  const b=loadPractice();
+  if(!b) return;
+  const label = b.mode==="translate" ? "📝 Dịch câu — 5 câu AI"
+    : `${MODE_NAMES[b.mode]||b.mode} · câu ${(b.i||0)+1}/${b.total||"?"} · đúng ${b.correct||0}`;
+  area.innerHTML=`<div class="card" style="border-color:var(--gold)">
+    <b>⏸ Có bài đang làm dở</b>
+    <p class="small muted" style="margin:4px 0 10px">${esc(label)}</p>
+    <div class="row wrap" style="gap:8px">
+      <button class="btn btn-primary" id="resumeBtn">▶ Tiếp tục bài đang làm dở</button>
+      <button class="btn btn-ghost" id="dropResumeBtn">✕ Bỏ, chọn kiểu bài khác</button>
+    </div></div>`;
+  document.getElementById("resumeBtn").onclick=resumePractice;
+  document.getElementById("dropResumeBtn").onclick=()=>{ clearPractice(); area.innerHTML=""; };
+}
 function startSession(mode){
+  transState=null;
   const slb=document.getElementById("scopeListBox");
   if(slb){ slb.style.display="none"; document.getElementById("viewScopeList").textContent="👁 Xem từ sẽ luyện"; }
   if(mode==="exam"){ startExam(); return; }
   if(mode==="translate"){ startTranslate(); return; }
   const pool=buildPool(15);
   if(pool.length===0){
+    session=null; clearPractice();
     document.getElementById("practiceArea").innerHTML=emptyReviewHtml;
     return;
   }
   session={mode,pool,i:0,correct:0,total:pool.length};
   nextCard();
 }
-function nextCard(){
+function nextCard(restore){
   const area=document.getElementById("practiceArea");
   if(!session || session.i>=session.pool.length){ finishSession(); return; }
   const x=session.pool[session.i];
   const head=`<p class="status">${session.i+1}/${session.total} · đúng ${session.correct}</p>`;
-  if(session.mode==="flash"){ area.innerHTML=head+flashCard(x); bindCard(x); }
+  if(session.mode==="flash"){ area.innerHTML=head+flashCard(x); bindCard(x, restore); }
   else if(session.mode==="write"){ area.innerHTML=head+writeCard(x); bindWriteCard(x); }
-  else if(session.mode==="typepy"){ area.innerHTML=head+typeCard(x); bindTypeCard(x); }
+  else if(session.mode==="typepy"){ area.innerHTML=head+typeCard(x); bindTypeCard(x, restore); }
   else if(session.mode==="exam"){ const q=makeExam(x); area.innerHTML=head+q.html; bindExamCard(x,q.opts); }
-  else { area.innerHTML=head+quizCard(x, session.mode); bindCard(x); }
+  else { area.innerHTML=head+quizCard(x, session.mode, restore&&restore.opts); bindCard(x, restore); }
+  savePractice();
 }
 /* ---- Nghe → gõ pinyin ---- */
 function normPinyin(s){   // bỏ dấu thanh — dùng để nhận biết "đúng âm nhưng sai dấu"
@@ -909,11 +994,12 @@ function typeCard(x){
     <button class="btn btn-primary" id="pyCheck" style="margin-top:10px">Kiểm tra</button>
   </div>`;
 }
-function bindTypeCard(x){
+function bindTypeCard(x, restore){
   const inp=document.getElementById("pyInput");
   const fb=document.getElementById("pyFeedback");
   const btn=document.getElementById("pyCheck");
-  setTimeout(()=>{ speak(x.w); inp.focus(); }, 150);
+  const restoring = !!(restore && restore.checked);
+  if(!restoring) setTimeout(()=>{ speak(x.w); inp.focus(); }, 150);
   // Gõ số thanh điệu -> tự đổi thành dấu ngay trong ô nhập
   inp.addEventListener("input",()=>{
     const conv=pyNumToTone(inp.value);
@@ -924,13 +1010,13 @@ function bindTypeCard(x){
     const nx=el(`<button class="btn btn-primary" style="margin-top:12px">Tiếp theo →</button>`);
     nx.onclick=advance; setTimeout(()=>nx.focus(),50); return nx;
   }
-  function check(){
+  function check(skipScore){
     if(done) return; done=true;
     const ans=pyNumToTone(inp.value);
     const ok   = normPinyinStrict(ans)===normPinyinStrict(x.p);
     const near = !ok && normPinyin(ans)===normPinyin(x.p);  // đúng âm, sai/thiếu dấu thanh
     inp.disabled=true; btn.style.display="none";
-    if(ok) session.correct++;
+    if(ok && !skipScore) session.correct++;
     const verdict = ok ? '✓ Chính xác!' : (near ? '✗ Đúng âm nhưng sai dấu thanh' : '✗ Chưa đúng');
     fb.innerHTML=`<div style="font-weight:700;color:${ok?'var(--green)':'var(--bad)'}">${verdict}</div>
       <div class="row" style="justify-content:center;gap:6px;margin-top:6px">
@@ -941,7 +1027,8 @@ function bindTypeCard(x){
       <div class="small muted" style="margin-top:2px">👆 bấm chữ Hán để xem cách viết · bôi đen hoặc bấm 📋 để sao chép</div>
       <div class="pinyin" style="font-size:18px">${x.p}</div>
       <div class="meaning">${esc(x.vi)}</div>`;
-    logReview(x.w, ok);
+    if(!skipScore) logReview(x.w, ok);
+    savePractice();
     if(ok){ fb.appendChild(nextBtn()); return; }
     // SAI: hiện đáp án rồi buộc gõ lại cho đúng mới được sang câu khác
     const retry=el(`<div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)">
@@ -953,7 +1040,7 @@ function bindTypeCard(x){
     fb.appendChild(retry);
     const rin=retry.querySelector("#pyRetry");
     const rfb=retry.querySelector("#pyRetryFb");
-    setTimeout(()=>rin.focus(),60);
+    if(!skipScore) setTimeout(()=>rin.focus(),60);
     rin.addEventListener("input",()=>{ const c=pyNumToTone(rin.value); if(c!==rin.value) rin.value=c; });
     function retryCheck(){
       const rans=pyNumToTone(rin.value);
@@ -967,8 +1054,11 @@ function bindTypeCard(x){
     }
     rin.addEventListener("keydown",e=>{ if(e.key==="Enter") retryCheck(); });
   }
-  btn.onclick=check;
+  btn.onclick=()=>check();
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") check(); });
+  // Khôi phục câu đang làm dở
+  if(restore && restore.value) inp.value=restore.value;
+  if(restore && restore.checked){ check(true); }   // hiện lại đáp án đã chấm, KHÔNG cộng điểm lại
 }
 function flashCard(x){
   return `<div class="flash" id="flashCard">
@@ -986,12 +1076,19 @@ function flashCard(x){
     <button class="g-good" data-g="2">Nhớ</button>
   </div>`;
 }
-function quizCard(x, mode){
-  // build options
+function quizCard(x, mode, orderW){
+  // build options — khi khôi phục thì giữ nguyên thứ tự đáp án cũ (orderW)
   let prompt, correctText, optText;
-  const distract = shuffle(WORDS.filter(o=>o.w!==x.w && o.pos===x.pos)).slice(0,3);
-  while(distract.length<3){ const r=WORDS[Math.random()*WORDS.length|0]; if(r.w!==x.w && !distract.includes(r)) distract.push(r); }
-  let opts=shuffle([x,...distract]);
+  let opts=null;
+  if(orderW && orderW.length){
+    opts=orderW.map(w=>WORDS.find(o=>o.w===w)).filter(Boolean);
+    if(!opts.some(o=>o.w===x.w)) opts=null;   // dữ liệu đổi → dựng lại mới
+  }
+  if(!opts){
+    const distract = shuffle(WORDS.filter(o=>o.w!==x.w && o.pos===x.pos)).slice(0,3);
+    while(distract.length<3){ const r=WORDS[Math.random()*WORDS.length|0]; if(r.w!==x.w && !distract.includes(r)) distract.push(r); }
+    opts=shuffle([x,...distract]);
+  }
   if(mode==="zh2vi"){
     prompt=`<div class="word-han big">${x.w}</div>${speakBtn(x.w)}<p class="small muted">Chọn nghĩa đúng</p>`;
     optText=o=>esc(o.vi);
@@ -1060,6 +1157,7 @@ function bindExamCard(x, opts){
     if(ok) session.correct++;
     speak(x.w);
     logReview(x.w, ok);
+    savePractice();
     const last = session.i+1>=session.total;
     exp.innerHTML=examExplain(x,picked)+
       `<button class="btn btn-primary" id="examNext" style="margin-top:4px">${last?'Xem kết quả →':'Câu tiếp →'}</button>`;
@@ -1077,6 +1175,7 @@ async function startExam(){
   const uniq=[]; const seenw=new Set();
   pool.forEach(w=>{ if(!seenw.has(w.w)){ seenw.add(w.w); uniq.push(w); } });
   const pick=uniq.slice(0, Math.min(12, uniq.length));
+  session=null; clearPractice();               // đang tải đề AI: chưa có bài để khôi phục
   area.innerHTML=`<div class="card" style="text-align:center">
     <div class="word-han" style="font-size:34px">⏳</div>
     <p style="margin:8px 0">Đang tạo ${want} câu hỏi bằng tiếng Trung…</p>
@@ -1109,13 +1208,14 @@ function startExamOffline(pool){
   session={mode:"exam", ai:false, pool, i:0, correct:0, total:pool.length};
   nextCard();
 }
-function nextExam(){
+function nextExam(restore){
   const area=document.getElementById("practiceArea");
   if(!session || session.i>=session.questions.length){ finishSession(); return; }
   const q=session.questions[session.i];
   const head=`<p class="status">${session.i+1}/${session.total} · đúng ${session.correct}</p>`;
   area.innerHTML=head+examAICard(q);
-  bindExamAICard(q);
+  bindExamAICard(q, restore);
+  savePractice();
 }
 function examAICard(q){
   const letters=["A","B","C","D"];
@@ -1135,28 +1235,35 @@ function examAICard(q){
     <div id="optWrap" style="margin-top:12px">${optHtml}</div>
     <div id="examExplain" style="margin-top:12px"></div>`;
 }
-function bindExamAICard(q){
+function bindExamAICard(q, restore){
   const wrap=document.getElementById("optWrap");
   const exp=document.getElementById("examExplain");
-  wrap.addEventListener("click",e=>{
-    const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
-    wrap.dataset.done="1";
-    const pick=+b.dataset.i, ok=pick===q.correct;
+  function mark(pick){        // tô đúng/sai + hiện giải thích — không cộng điểm ở đây
+    wrap.dataset.done="1"; wrap.dataset.picked=pick;
+    const ok=pick===q.correct;
     wrap.querySelectorAll(".opt").forEach((o,i)=>{
       if(i===q.correct) o.classList.add("correct");
       else if(i===pick) o.classList.add("wrong");
     });
-    if(ok) session.correct++;
-    if(q.target && WORDS.some(w=>w.w===q.target)) logReview(q.target, ok);
-    speak((q.options[q.correct]||"").replace(/[＿_]+/g,""));
     const last=session.i+1>=session.total;
     exp.innerHTML=`<div class="card" style="border-color:${ok?'var(--green)':'var(--bad)'};background:${ok?'var(--green-bg)':'var(--bad-bg)'}">
         <b style="color:${ok?'var(--green)':'var(--bad)'}">${ok?'✓ Chính xác!':'✗ Chưa đúng.'}</b>
         <div class="small" style="margin-top:6px;line-height:1.5">${esc(q.explain||"")}</div></div>
       <button class="btn btn-primary" id="examNext" style="margin-top:4px">${last?'Xem kết quả →':'Câu tiếp →'}</button>`;
     document.getElementById("examNext").onclick=advance;
+    return ok;
+  }
+  wrap.addEventListener("click",e=>{
+    const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
+    const pick=+b.dataset.i;
+    const ok=mark(pick);
+    if(ok) session.correct++;
+    if(q.target && WORDS.some(w=>w.w===q.target)) logReview(q.target, ok);
+    speak((q.options[q.correct]||"").replace(/[＿_]+/g,""));
+    savePractice();
     setTimeout(()=>exp.scrollIntoView({block:"center",behavior:"smooth"}),40);
   });
+  if(restore && restore.done && restore.picked!=null) mark(restore.picked);   // khôi phục: không cộng điểm lại
 }
 /* ---- Tập viết chữ Hán (Hanzi Writer) ---- */
 function hanChars(w){ return (w.match(/[㐀-鿿]/g)||[]); }
@@ -1250,33 +1357,45 @@ function bindWriteCard(x){
   startChar();
 }
 
-function bindCard(x){
+function bindCard(x, restore){
   if(session.mode==="flash"){
-    document.getElementById("flipBtn").onclick=()=>{
+    const flip=()=>{
       document.getElementById("flashBack").style.display="block";
       document.getElementById("flipBtn").style.display="none";
       document.getElementById("gradeRow").style.display="grid";
+      savePractice();
     };
+    document.getElementById("flipBtn").onclick=flip;
     document.getElementById("gradeRow").onclick=e=>{
       const b=e.target.closest("button[data-g]"); if(!b) return;
       const g=+b.dataset.g; if(g===2) session.correct++;
       logReview(x.w, g===2); advance();
     };
+    if(restore && restore.flipped) flip();
   }else{
     const wrap=document.getElementById("optWrap");
-    wrap.addEventListener("click",e=>{
-      const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
-      wrap.dataset.done="1";
-      const ok=b.dataset.w===x.w;
+    function mark(pickedW){       // tô đúng/sai — dùng chung cho lúc trả lời và lúc khôi phục
+      wrap.dataset.done="1"; wrap.dataset.picked=pickedW||"";
       wrap.querySelectorAll(".opt").forEach(o=>{
         if(o.dataset.w===x.w) o.classList.add("correct");
-        else if(o===b) o.classList.add("wrong");
+        else if(o.dataset.w===pickedW) o.classList.add("wrong");
       });
+    }
+    wrap.addEventListener("click",e=>{
+      const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
+      const ok=b.dataset.w===x.w;
+      mark(b.dataset.w);
       if(ok) session.correct++;
       speak(x.w);
       logReview(x.w, ok);
+      savePractice();
       setTimeout(advance, ok?700:1500);
     });
+    if(restore && restore.done){     // đã trả lời trước khi tắt → hiện lại kết quả + nút đi tiếp
+      mark(restore.picked);
+      const nb=el(`<button class="btn btn-primary" style="margin-top:10px">Câu tiếp →</button>`);
+      nb.onclick=advance; wrap.after(nb);
+    }
   }
 }
 function advance(){ session.i++; if(session && session.ai) nextExam(); else nextCard(); }
@@ -1288,12 +1407,12 @@ function finishSession(){
     <p class="small muted">Đã ghi nhận vào tiến độ hôm nay.</p>
     <button class="btn btn-primary" style="margin-top:10px" onclick="startSession('${session.mode}')">Làm tiếp</button>
   </div>`;
-  session=null;
+  session=null; transState=null; clearPractice();     // xong bài → không còn gì để khôi phục
 }
 
 /* ---- 📝 Dịch câu: AI tạo câu tiếng Trung, bấm để hiện phiên âm + dịch + từ vựng ---- */
 async function startTranslate(){
-  session=null;
+  session=null; transState=null; clearPractice();      // đang tải câu AI: chưa có gì để khôi phục
   const area=document.getElementById("practiceArea");
   const level=levelFromReview();
   if(!PROXY_URL){
@@ -1327,15 +1446,20 @@ function transReveal(s){
     ${vocab?`<div class="small muted" style="margin-top:8px">Từ vựng trong câu:</div>
       <ul class="small" style="margin:4px 0 0;padding-left:18px;line-height:1.7">${vocab}</ul>`:""}`;
 }
-function renderTranslate(sents, level){
-  const cards=sents.map((s,i)=>`<div class="card">
+function renderTranslate(sents, level, revealed){
+  session=null; transState={sents, level};
+  revealed=revealed||[];
+  const cards=sents.map((s,i)=>{
+    const open=!!revealed[i];
+    return `<div class="card">
       <div class="row spread" style="align-items:flex-start;gap:8px">
         <div class="word-han" style="font-size:24px;line-height:1.5;flex:1">${esc(s.zh)}</div>
         ${speakBtn(s.zh)}
       </div>
-      <button class="btn btn-ghost btn-sm" data-trans="${i}" style="margin-top:8px">👁 Dịch nghĩa</button>
-      <div id="trans-${i}" style="display:none">${transReveal(s)}</div>
-    </div>`).join("");
+      <button class="btn btn-ghost btn-sm" data-trans="${i}" style="margin-top:8px">${open?"🙈 Ẩn nghĩa":"👁 Dịch nghĩa"}</button>
+      <div id="trans-${i}" style="display:${open?"block":"none"}">${transReveal(s)}</div>
+    </div>`;
+  }).join("");
   const area=document.getElementById("practiceArea");
   area.innerHTML=`<p class="status">5 câu ${esc(level)} · bấm “Dịch nghĩa” từng câu</p>
     ${cards}
@@ -1346,9 +1470,11 @@ function renderTranslate(sents, level){
       const show=box.style.display==="none";
       box.style.display=show?"block":"none";
       b.textContent=show?"🙈 Ẩn nghĩa":"👁 Dịch nghĩa";
+      savePractice();
     };
   });
   document.getElementById("transMore").onclick=()=>startTranslate();
+  savePractice();
 }
 
 /* ====================================================================
@@ -1489,10 +1615,12 @@ async function syncPush(auto){
 }
 // Lưu nốt khi rời trang (tránh mất thay đổi trong lúc chờ tự lưu)
 document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState==="hidden" && dirty && VOCAB_URL && state.code){
-    clearTimeout(autoSyncTimer); syncPush(true);
+  if(document.visibilityState==="hidden"){
+    savePractice();                              // lưu bài luyện tập đang làm dở (kể cả chữ đang gõ)
+    if(dirty && VOCAB_URL && state.code){ clearTimeout(autoSyncTimer); syncPush(true); }
   }
 });
+window.addEventListener("pagehide", savePractice);   // đóng tab / tắt máy trên nhiều trình duyệt
 async function syncPull(){
   if(!VOCAB_URL){ toast("Chưa cấu hình máy chủ đồng bộ"); return; }
   if(!state.code){ toast("Hãy nhập mã cá nhân ở tab Cài đặt"); return; }
@@ -1541,6 +1669,7 @@ document.getElementById("resetBtn").onclick=async()=>{
   if(!confirm("Làm lại từ đầu? Xóa toàn bộ tiến độ (các nhóm ôn, streak, lịch sử) — kể cả trên máy chủ. Danh sách từ vựng vẫn giữ nguyên.")) return;
   const keepCode=state.code, keepSettings=state.settings;   // giữ mã đồng bộ + cài đặt
   state=defaultState(); state.code=keepCode; state.settings=keepSettings;
+  session=null; transState=null; clearPractice();           // bỏ luôn bài luyện tập đang dở
   save();
   // ghi đè máy chủ để dữ liệu cũ không bị kéo ngược về khi đồng bộ
   if(VOCAB_URL && state.code){
