@@ -992,6 +992,7 @@ function typeCard(x){
       placeholder="ví dụ: ni3 hao3" style="text-align:center;font-size:18px;max-width:280px;margin:6px auto 0" />
     <div id="pyFeedback" style="margin-top:10px"></div>
     <button class="btn btn-primary" id="pyCheck" style="margin-top:10px">Kiểm tra</button>
+    ${session && session.i>0 ? `<div style="margin-top:10px"><button class="btn btn-ghost" id="pyRevBtn" style="font-size:13px;padding:4px 12px">◀ Xem lại từ trước</button></div>` : ""}
   </div>`;
 }
 function bindTypeCard(x, restore){
@@ -1059,6 +1060,39 @@ function bindTypeCard(x, restore){
   // Khôi phục câu đang làm dở
   if(restore && restore.value) inp.value=restore.value;
   if(restore && restore.checked){ check(true); }   // hiện lại đáp án đã chấm, KHÔNG cộng điểm lại
+  // Xem lại các từ ĐÃ làm trong phiên (giữ nguyên phần đang gõ để quay lại)
+  const revBtn=document.getElementById("pyRevBtn");
+  if(revBtn) revBtn.onclick=()=>{ if(session && session.i>0) showTypeReview(session.i-1, snapshotCard()); };
+}
+/* Màn hình xem lại 1 từ đã làm trong phiên gõ pinyin (read-only). `resume` = trạng thái
+   câu đang làm dở để khôi phục khi bấm "Về câu đang làm". Chỉ đi giữa các từ index < session.i. */
+function showTypeReview(idx, resume){
+  if(!session) return;
+  idx=Math.max(0, Math.min(idx, session.i-1));
+  const area=document.getElementById("practiceArea");
+  const x=session.pool[idx];
+  const w=x.w.replace(/'/g,"\\'");
+  const lastReviewable = idx>=session.i-1;   // đã tới từ ngay trước câu đang làm
+  area.innerHTML=`<p class="status">Xem lại · từ ${idx+1}/${session.total}</p>
+    <div class="flash" style="min-height:auto;padding:18px">
+      <button class="speak" style="width:64px;height:64px;font-size:28px" onclick="speak('${w}')">🔊</button>
+      <div class="row" style="justify-content:center;gap:6px;margin-top:12px">
+        <span class="word-han" style="font-size:30px;cursor:pointer;user-select:text;-webkit-user-select:text"
+          title="Bấm để xem cách viết (có thể bôi đen để copy)" onclick="showStrokeGuide(this,'${w}')">${x.w}</span>
+        ${copyBtn(x.w)}
+      </div>
+      <div class="pinyin" style="font-size:18px">${x.p}</div>
+      <div class="meaning">${esc(x.vi)}</div>
+      <div class="row wrap" style="justify-content:center;gap:8px;margin-top:16px">
+        <button class="btn btn-ghost" id="revPrev" ${idx<=0?"disabled":""}>◀ Từ trước</button>
+        <button class="btn btn-primary" id="revNext">${lastReviewable?"↩ Về câu đang làm":"Từ sau ▶"}</button>
+      </div>
+    </div>`;
+  document.getElementById("revPrev").onclick=()=>{ if(idx>0) showTypeReview(idx-1, resume); };
+  document.getElementById("revNext").onclick=()=>{
+    if(idx>=session.i-1) nextCard(resume);   // quay về câu đang làm, khôi phục phần đã gõ
+    else showTypeReview(idx+1, resume);
+  };
 }
 function flashCard(x){
   return `<div class="flash" id="flashCard">
