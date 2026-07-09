@@ -803,6 +803,7 @@ function renderSentences(){
  * ==================================================================== */
 let gFilter="all";
 let gExercise=null;                          // {g, items, answers} khi đang làm bài tập ngữ pháp
+let gView="list";                            // "list" | "exercise" — nhớ màn đang xem để giữ khi chuyển tab
 
 /* ---- Lưu / khôi phục bài tập ngữ pháp đang làm dở (localStorage, chỉ máy này) ---- */
 const GRAM_KEY = LS_KEY + "_grammar";
@@ -820,14 +821,21 @@ function countGrammarDone(saved){
   return (saved.answers||[]).filter(x=> x && (x.picked!=null || x.done || x.revealed)).length;
 }
 
+// Dispatcher gọi khi mở tab Ngữ pháp: giữ nguyên màn đang xem (danh sách hay bài tập)
 function renderGrammar(){
-  gExercise=null;                            // rời màn bài tập → về danh sách
+  if(gView==="exercise" && loadGrammarEx()){ resumeGrammarEx(false); return; }
+  renderGrammarList();
+}
+function backToGrammarList(){ gView="list"; renderGrammarList(); }
+
+function renderGrammarList(){
+  gView="list"; gExercise=null;              // đang xem danh sách
   document.getElementById("grammarExArea").innerHTML="";
   ["grammarLevels","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="");
   const w=document.getElementById("grammarLevels"); w.innerHTML="";
   const levels=[...new Set(GRAMMAR.map(x=>x.lv))].sort((a,b)=>a-b);
-  w.append(chip("Tất cả", gFilter==="all", ()=>{gFilter="all";renderGrammar();}));
-  levels.forEach(l=> w.append(chip("HSK"+l, gFilter===l, ()=>{gFilter=l;renderGrammar();})));
+  w.append(chip("Tất cả", gFilter==="all", ()=>{gFilter="all";renderGrammarList();}));
+  levels.forEach(l=> w.append(chip("HSK"+l, gFilter===l, ()=>{gFilter=l;renderGrammarList();})));
 
   const list=GRAMMAR.filter(g=>gFilter==="all"||g.lv===gFilter);
   document.getElementById("grammarCount").textContent=`${list.length} điểm ngữ pháp`;
@@ -847,8 +855,8 @@ function renderGrammar(){
           <button class="btn btn-primary btn-sm" id="gResume">Tiếp tục</button>
           <button class="btn btn-ghost btn-sm" id="gDiscard" style="color:var(--bad)">✕ Bỏ</button>
         </div></div></div>`);
-    banner.querySelector("#gResume").onclick=resumeGrammarEx;
-    banner.querySelector("#gDiscard").onclick=()=>{ if(confirm("Bỏ bài tập ngữ pháp đang làm dở?")){ clearGrammarEx(); renderGrammar(); } };
+    banner.querySelector("#gResume").onclick=()=>resumeGrammarEx(true);
+    banner.querySelector("#gDiscard").onclick=()=>{ if(confirm("Bỏ bài tập ngữ pháp đang làm dở?")){ clearGrammarEx(); renderGrammarList(); } };
     box.append(banner);
   }
 
@@ -878,13 +886,14 @@ function renderGrammar(){
 
 async function startGrammarEx(g){
   const area=document.getElementById("grammarExArea");
+  gView="exercise";                          // vào luồng bài tập → giữ khi chuyển tab
   // ẩn danh sách, tập trung vào bài tập
   ["grammarLevels","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="none");
   if(!PROXY_URL){
     area.innerHTML=`<div class="card"><p class="small" style="color:var(--bad);font-weight:600">Tính năng tạo bài tập cần AI.</p>
       <p class="small muted">Hãy cấu hình <code>PROXY_URL</code> (proxy Vercel <code>/api/chinese</code>) và thêm khóa AI để bật.</p>
       <button class="btn btn-ghost btn-sm" style="margin-top:10px" id="gBack">← Quay lại ngữ pháp</button></div>`;
-    document.getElementById("gBack").onclick=renderGrammar;
+    document.getElementById("gBack").onclick=backToGrammarList;
     return;
   }
   area.innerHTML=`<div class="card" style="text-align:center">
@@ -910,22 +919,23 @@ async function startGrammarEx(g){
         <button class="btn btn-primary btn-sm" id="gRetry">Thử lại</button>
         <button class="btn btn-ghost btn-sm" id="gBack">← Quay lại ngữ pháp</button></div></div>`;
     document.getElementById("gRetry").onclick=()=>startGrammarEx(g);
-    document.getElementById("gBack").onclick=renderGrammar;
+    document.getElementById("gBack").onclick=backToGrammarList;
   }
 }
 
-function resumeGrammarEx(){
+function resumeGrammarEx(scroll){
   const saved=loadGrammarEx();
   const g=saved && GRAMMAR.find(x=>x.id===saved.gid);
-  if(!g || !Array.isArray(saved.items) || !saved.items.length){ clearGrammarEx(); renderGrammar(); return; }
+  if(!g || !Array.isArray(saved.items) || !saved.items.length){ clearGrammarEx(); renderGrammarList(); return; }
   ["grammarLevels","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="none");
   renderGrammarEx(g, saved.items, saved.answers);
-  document.getElementById("grammarExArea").scrollIntoView({block:"start",behavior:"smooth"});
+  if(scroll) document.getElementById("grammarExArea").scrollIntoView({block:"start",behavior:"smooth"});
 }
 
 function renderGrammarEx(g, items, answers){
   answers = (Array.isArray(answers) && answers.length===items.length) ? answers : items.map(()=>({}));
   gExercise = { g, items, answers };
+  gView="exercise";                         // đang xem bài tập → giữ khi chuyển tab rồi quay lại
   saveGrammarEx();                          // lưu ngay bài vừa tạo/khôi phục (dù chưa trả lời)
   const onChange=(i)=>(st)=>{ answers[i]=st; saveGrammarEx(); };
   const area=document.getElementById("grammarExArea");
@@ -947,9 +957,9 @@ function renderGrammarEx(g, items, answers){
     <button class="btn btn-primary btn-sm" id="gMore">↻ Tạo 5 câu khác</button>
     <button class="btn btn-ghost btn-sm" id="gBack">← Quay lại ngữ pháp</button></div>`);
   foot.querySelector("#gMore").onclick=()=>startGrammarEx(g);
-  foot.querySelector("#gBack").onclick=renderGrammar;
+  foot.querySelector("#gBack").onclick=backToGrammarList;
   area.append(foot);
-  document.getElementById("gBackTop").onclick=renderGrammar;
+  document.getElementById("gBackTop").onclick=backToGrammarList;
 }
 
 function grHead(i,label){ return `<div class="small muted" style="font-weight:600;margin-bottom:6px">Câu ${i+1} · ${label}</div>`; }
