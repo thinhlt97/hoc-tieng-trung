@@ -6,7 +6,7 @@
  *  - API (vocab-worker đồng bộ, proxy ví dụ AI): KHÔNG cache — luôn ra mạng.
  * Đổi CACHE_VER mỗi lần sửa danh sách hoặc muốn ép làm mới cache.
  */
-const CACHE_VER = "zh-v16";
+const CACHE_VER = "zh-v17";
 const CORE = "core-" + CACHE_VER;
 const RUNTIME = "runtime-" + CACHE_VER;
 
@@ -15,6 +15,7 @@ const CORE_ASSETS = [
   "./",
   "./index.html",
   "./data/hsk.js",
+  "./data/grammar.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

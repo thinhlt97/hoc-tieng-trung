@@ -19,6 +19,12 @@
  * POST { task:"sentences", level:"HSK1", n:5, provider:"gemini"|"groq" }
  *  ←  { sentences:[ { zh, pinyin, vi, vocab:[{ w, p, vi }] } ] }
  *
+ * POST { task:"grammar", title, formula, explain, examples:[{zh}], level:"HSK2", n:5, provider }
+ *  ←  { exercises:[
+ *        { type:"mc",        stem, options:[4], correct:0..3, pinyin, vi, explain },
+ *        { type:"order",     segments:[...], answer, pinyin, vi, explain },
+ *        { type:"translate", vi, answer, pinyin, explain } ] }
+ *
  * Env (Vercel → Settings → Environment Variables, đổi xong phải Redeploy):
  *   GEMINI_API_KEY, GROQ_API_KEY
  * ==========================================================================*/
@@ -97,6 +103,51 @@ function promptSentences(b) {
   return `Trình độ: ${level}. Soạn ĐÚNG ${n} câu khác nhau, đa dạng chủ đề đời thường.`;
 }
 
+/* ---------- task: grammar (bài tập cho 1 điểm ngữ pháp) ---------- */
+const SYS_GRAMMAR = `Bạn là giáo viên tiếng Trung cho người Việt học theo giáo trình HSK.
+Cho MỘT điểm ngữ pháp, hãy soạn bài tập luyện ĐÚNG điểm ngữ pháp đó, dùng từ vựng và
+câu ĐƠN GIẢN hợp trình độ HSK được cho. TRỘN 3 dạng bài sau (mỗi loại ít nhất 1 câu):
+
+1) "mc" — Trắc nghiệm điền từ/chọn đáp án (4 phương án A,B,C,D):
+   - "stem": câu tiếng Trung giản thể có chỗ trống ghi là ＿＿ (hoặc câu hỏi chọn cách dùng đúng).
+   - "options": 4 phương án (chữ Hán ngắn); chỉ 1 đúng theo điểm ngữ pháp, 3 cái kia sai để gây nhiễu.
+   - "correct": chỉ số 0-3 của đáp án đúng.
+   - "pinyin": pinyin có dấu của câu đúng (đã điền); "vi": nghĩa tiếng Việt của câu đúng.
+   - "explain": giải thích TIẾNG VIỆT vì sao đúng và vì sao mỗi phương án kia sai.
+
+2) "order" — Sắp xếp câu:
+   - "segments": mảng các CỤM TỪ chữ Hán theo ĐÚNG thứ tự tạo thành câu đúng (3-6 cụm; tách hợp lý,
+     KHÔNG kèm dấu câu trong từng cụm).
+   - "answer": câu hoàn chỉnh đúng (nối các segment, có thể thêm dấu câu cuối).
+   - "pinyin": pinyin có dấu của câu; "vi": nghĩa tiếng Việt.
+   - "explain": giải thích TIẾNG VIỆT trật tự từ theo điểm ngữ pháp.
+
+3) "translate" — Dịch câu Việt → Trung:
+   - "vi": câu tiếng Việt cần dịch (ngắn, đời thường, buộc dùng điểm ngữ pháp).
+   - "answer": câu tiếng Trung giản thể đúng.
+   - "pinyin": pinyin có dấu của câu đáp án.
+   - "explain": giải thích TIẾNG VIỆT cách đặt câu theo điểm ngữ pháp.
+
+Trả về DUY NHẤT JSON hợp lệ:
+{"exercises":[
+  {"type":"mc","stem":"...","options":["...","...","...","..."],"correct":0,"pinyin":"...","vi":"...","explain":"..."},
+  {"type":"order","segments":["...","..."],"answer":"...","pinyin":"...","vi":"...","explain":"..."},
+  {"type":"translate","vi":"...","answer":"...","pinyin":"...","explain":"..."}
+]}
+Không thêm chữ nào ngoài JSON.`;
+
+function promptGrammar(b) {
+  const n = Math.min(Math.max(parseInt(b.n, 10) || 5, 3), 8);
+  const lv = String(b.level || "HSK1").trim() || "HSK1";
+  const eg = (b.examples || []).map((e) => e && e.zh).filter(Boolean).slice(0, 2).join(" / ");
+  return `Trình độ: ${lv}.
+Điểm ngữ pháp: ${b.title || ""}.
+Cấu trúc: ${b.formula || ""}.
+Giải thích: ${b.explain || ""}.
+${eg ? "Ví dụ mẫu: " + eg + "." : ""}
+Soạn ĐÚNG ${n} câu bài tập luyện riêng điểm ngữ pháp này, trộn đủ 3 dạng mc/order/translate.`;
+}
+
 async function callGemini(sys, prompt, maxTokens) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("thiếu GEMINI_API_KEY");
@@ -163,6 +214,49 @@ export default async function handler(req, res) {
                Number.isInteger(q.correct) && q.correct >= 0 && q.correct <= 3
       );
       return res.status(200).json({ questions });
+    }
+
+    if (b.task === "grammar") {
+      const raw = await call(SYS_GRAMMAR, promptGrammar(b), 3500);
+      const out = parseJson(raw);
+      const exercises = (out.exercises || [])
+        .filter((e) => e && (e.type === "mc" || e.type === "order" || e.type === "translate"))
+        .map((e) => {
+          if (e.type === "mc") {
+            return {
+              type: "mc",
+              stem: String(e.stem || ""),
+              options: Array.isArray(e.options) ? e.options.slice(0, 4).map((o) => String(o)) : [],
+              correct: Number.isInteger(e.correct) ? e.correct : 0,
+              pinyin: String(e.pinyin || ""),
+              vi: String(e.vi || ""),
+              explain: String(e.explain || ""),
+            };
+          }
+          if (e.type === "order") {
+            return {
+              type: "order",
+              segments: Array.isArray(e.segments) ? e.segments.map((s) => String(s)).filter(Boolean) : [],
+              answer: String(e.answer || ""),
+              pinyin: String(e.pinyin || ""),
+              vi: String(e.vi || ""),
+              explain: String(e.explain || ""),
+            };
+          }
+          return {
+            type: "translate",
+            vi: String(e.vi || ""),
+            answer: String(e.answer || ""),
+            pinyin: String(e.pinyin || ""),
+            explain: String(e.explain || ""),
+          };
+        })
+        .filter((e) =>
+          e.type === "mc" ? e.options.length === 4 && e.correct >= 0 && e.correct <= 3 && e.stem
+          : e.type === "order" ? e.segments.length >= 2 && e.answer
+          : e.vi && e.answer
+        );
+      return res.status(200).json({ exercises });
     }
 
     if (b.task === "sentences") {

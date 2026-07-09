@@ -52,6 +52,9 @@ Tham chiếu kiến trúc app tiếng Anh “The Touchline” (xem `/home/thinh/
 - `index.html` — 1 file HTML+CSS+JS, không framework. Toàn bộ logic SRS, UI, đồng bộ.
 - `data/hsk.js` — dữ liệu từ vựng (`HSK_WORDS`) + câu (`HSK_SENTENCES`). **Offline**,
   không cần API. Thêm cấp HSK2/3… chỉ cần nối vào mảng `HSK_WORDS` (mỗi mục có `lv`).
+- `data/grammar.js` — dữ liệu ngữ pháp (`HSK_GRAMMAR`) cho tab **Ngữ pháp**. **Offline**
+  (tra cứu + tiếp xúc). Mỗi mục: `{lv, id, title, formula, explain, examples:[{zh,p,vi}]}`.
+  Nút “🎯 Tạo bài tập” ở mỗi điểm mới cần AI (proxy `task:"grammar"`).
 - **Phát âm**: Web Speech API giọng `zh-CN` (không cần file âm thanh, không cần API).
 - Hằng số cấu hình ở đầu thẻ `<script>`:
   - `VOCAB_URL` = URL vocab-worker (để trống ⇒ chỉ lưu localStorage trên máy này).
@@ -89,6 +92,17 @@ POST ?code=MA { "data":{} }← { "ok": true }
 ```
 → { "task":"sentences", "level":"HSK1", "n":5, "provider":"gemini"|"groq" }
 ← { "sentences":[ { "zh","pinyin","vi","vocab":[{ "w","p","vi" }] } ] }
+```
+**Bài tập ngữ pháp** (nút “🎯 Tạo bài tập” ở tab Ngữ pháp — sinh 5 câu cho MỘT điểm):
+```
+→ { "task":"grammar", "title","formula","explain","examples":[{"zh"}],
+    "level":"HSK2", "n":5, "provider":"gemini"|"groq" }
+← { "exercises":[
+    { "type":"mc",        "stem","options":[4],"correct":0..3,"pinyin","vi","explain" },
+    { "type":"order",     "segments":[...],"answer","pinyin","vi","explain" },
+    { "type":"translate", "vi","answer","pinyin","explain" } ] }
+// Trộn 3 dạng: trắc nghiệm ABCD / sắp xếp cụm từ / dịch Việt→Trung. Chấm ngay ở client
+// (order so khớp bỏ dấu câu; translate tự chấm bằng nút “Xem đáp án”). KHÔNG tính vào SRS.
 ```
 Lỗi luôn trả `{ "error":"..." }` kèm header CORS.
 
@@ -200,6 +214,14 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
 - ✅ **Luyện viết chữ Hán** (Hanzi Writer 3.7.1 qua CDN jsdelivr): kiểu luyện tập
   “✍ Tập viết” — viết từng nét, chấm theo số lần sai → tính vào SRS. Đa ký tự thì viết
   lần lượt từng chữ.
+- ✅ **Tab Ngữ pháp** (`#view-grammar`, `renderGrammar`): tổng hợp **45 điểm ngữ pháp**
+  HSK1–3 offline (`data/grammar.js`), lọc theo cấp (chip HSK1/2/3), mỗi điểm có cấu trúc
+  (`.gformula`) + giải thích + 2 ví dụ (có loa). Nút “🎯 Tạo bài tập” → `startGrammarEx(g)`
+  gọi proxy `task:"grammar"` → `renderGrammarEx` hiện 5 câu trộn 3 dạng: trắc nghiệm ABCD
+  (`grMcCard`), sắp xếp cụm từ (`grOrderCard`, bấm cụm để ghép/gỡ, `grNorm` so khớp bỏ dấu
+  câu), dịch Việt→Trung (`grTransCard`, nút “👁 Xem đáp án”). KHÔNG tính vào SRS. Khi chưa
+  bật AI (thiếu key) thì báo cần AI. **Cần thêm env `GEMINI_API_KEY`/`GROQ_API_KEY` trên
+  Vercel** để nút hoạt động (giống các tính năng AI khác).
 - ⏳ HSK5 sẽ bổ sung dần vào `data/hsk.js` (cùng cách: tải `…L5.txt` từ
   `glxxyz/hskhsk.com`, dịch nghĩa Việt). HSK5 ~1300 từ.
 

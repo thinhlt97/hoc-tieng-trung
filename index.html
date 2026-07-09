@@ -143,6 +143,15 @@ input.text{
 .opt.wrong{background:var(--bad-bg); border-color:var(--bad); color:var(--bad)}
 .opt .han{font-size:20px}
 
+.gformula{margin-top:8px;padding:8px 12px;background:var(--gold-bg,#fbf3df);border-radius:10px;
+  font-family:"Noto Serif SC",serif;font-size:16px;color:var(--red);line-height:1.5}
+.seg{border:1.5px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;
+  font-family:"Noto Serif SC",serif;font-size:19px;cursor:pointer}
+.seg.used{opacity:.35;pointer-events:none}
+.gbuild{display:flex;flex-wrap:wrap;gap:8px;min-height:46px;padding:8px;border:1.5px dashed var(--line);
+  border-radius:12px;background:var(--card,#fff)}
+.gpool{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+
 .status{font-size:13px; color:var(--muted); margin:8px 2px}
 .empty{text-align:center; color:var(--muted); padding:40px 10px}
 .empty .em{font-family:var(--han); font-size:42px; display:block; margin-bottom:8px}
@@ -177,6 +186,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
   <button data-v="today" class="active">Hôm nay</button>
   <button data-v="vocab">Từ vựng</button>
   <button data-v="sentences">Câu</button>
+  <button data-v="grammar">Ngữ pháp</button>
   <button data-v="review">Từ đang ôn</button>
   <button data-v="practice">Luyện tập</button>
   <button data-v="progress">Tiến độ</button>
@@ -216,6 +226,16 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
     <p class="lead">Nghe và đọc nhiều lần. Bấm loa để nghe phát âm chuẩn.</p>
     <div class="chips" id="sentCats"></div>
     <div id="sentList"></div>
+  </section>
+
+  <!-- ========================= NGỮ PHÁP ========================= -->
+  <section class="view" id="view-grammar">
+    <h2 class="section">语法 · Ngữ pháp</h2>
+    <p class="lead">Tổng hợp ngữ pháp HSK1–HSK3. Mỗi điểm có cấu trúc, giải thích và ví dụ; bấm “Tạo bài tập” để AI sinh 5 câu luyện riêng điểm đó (trắc nghiệm · sắp xếp · dịch).</p>
+    <div class="chips" id="grammarLevels"></div>
+    <p class="status" id="grammarCount"></p>
+    <div id="grammarList"></div>
+    <div id="grammarExArea"></div>
   </section>
 
   <!-- ========================= LUYỆN TẬP ========================= -->
@@ -324,6 +344,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
 <div class="toast" id="toast"></div>
 
 <script src="data/hsk.js"></script>
+<script src="data/grammar.js"></script>
 <script>
 /* ====================================================================
  * CẤU HÌNH — điền sau khi deploy (xem CLAUDE.md)
@@ -338,6 +359,7 @@ const LS_KEY  = "zh_state_v1";
  * ==================================================================== */
 const WORDS = window.HSK_WORDS || [];
 const SENTENCES = window.HSK_SENTENCES || [];
+const GRAMMAR = window.HSK_GRAMMAR || [];
 const DAY = 86400000;
 
 let state = loadState();
@@ -581,6 +603,7 @@ function render(v){
   if(v==="vocab") renderVocab();
   if(v==="review") renderReview();
   if(v==="sentences") renderSentences();
+  if(v==="grammar") renderGrammar();
   if(v==="practice") renderPracticeHome();
   if(v==="progress") renderProgress();
   if(v==="settings") renderSettings();
@@ -773,6 +796,220 @@ function renderSentences(){
       </div>
     </div>`));
   });
+}
+
+/* ====================================================================
+ * NGỮ PHÁP — tra cứu + tạo bài tập bằng AI
+ * ==================================================================== */
+let gFilter="all";
+function renderGrammar(){
+  document.getElementById("grammarExArea").innerHTML="";
+  ["grammarLevels","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="");
+  const w=document.getElementById("grammarLevels"); w.innerHTML="";
+  const levels=[...new Set(GRAMMAR.map(x=>x.lv))].sort((a,b)=>a-b);
+  w.append(chip("Tất cả", gFilter==="all", ()=>{gFilter="all";renderGrammar();}));
+  levels.forEach(l=> w.append(chip("HSK"+l, gFilter===l, ()=>{gFilter=l;renderGrammar();})));
+
+  const list=GRAMMAR.filter(g=>gFilter==="all"||g.lv===gFilter);
+  document.getElementById("grammarCount").textContent=`${list.length} điểm ngữ pháp`;
+  const box=document.getElementById("grammarList"); box.innerHTML="";
+  list.forEach(g=>{
+    const egHtml=(g.examples||[]).map(e=>`<div class="card" style="padding:8px 12px;margin:6px 0 0;box-shadow:none">
+        <div class="row spread wrap"><div>
+          <div class="word-han" style="font-size:20px">${esc(e.zh)}</div>
+          <div class="pinyin">${esc(e.p)}</div>
+          <div class="meaning">${esc(e.vi)}</div>
+        </div><div class="row">${speakBtn(e.zh)}</div></div></div>`).join("");
+    const card=el(`<div class="card">
+      <div class="row spread wrap" style="gap:8px">
+        <b style="font-size:16px">${esc(g.title)}</b>
+        <span class="cat">HSK${g.lv}</span>
+      </div>
+      <div class="gformula">${esc(g.formula)}</div>
+      <p class="small" style="margin:8px 0 0;line-height:1.6">${esc(g.explain)}</p>
+      ${egHtml}
+      <div class="row gact" style="margin-top:12px"></div>
+    </div>`);
+    const btn=el(`<button class="btn btn-primary btn-sm">🎯 Tạo bài tập</button>`);
+    btn.onclick=()=>startGrammarEx(g);
+    card.querySelector(".gact").append(btn);
+    box.append(card);
+  });
+}
+
+async function startGrammarEx(g){
+  const area=document.getElementById("grammarExArea");
+  // ẩn danh sách, tập trung vào bài tập
+  ["grammarLevels","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="none");
+  if(!PROXY_URL){
+    area.innerHTML=`<div class="card"><p class="small" style="color:var(--bad);font-weight:600">Tính năng tạo bài tập cần AI.</p>
+      <p class="small muted">Hãy cấu hình <code>PROXY_URL</code> (proxy Vercel <code>/api/chinese</code>) và thêm khóa AI để bật.</p>
+      <button class="btn btn-ghost btn-sm" style="margin-top:10px" id="gBack">← Quay lại ngữ pháp</button></div>`;
+    document.getElementById("gBack").onclick=renderGrammar;
+    return;
+  }
+  area.innerHTML=`<div class="card" style="text-align:center">
+    <div class="word-han" style="font-size:34px">⏳</div>
+    <p style="margin:8px 0">Đang tạo 5 câu bài tập cho <b>${esc(g.title)}</b>…</p>
+    <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
+  area.scrollIntoView({block:"start",behavior:"smooth"});
+  try{
+    const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({task:"grammar", n:5, provider:state.settings.provider,
+        level:"HSK"+g.lv, title:g.title, formula:g.formula, explain:g.explain,
+        examples:(g.examples||[]).map(e=>({zh:e.zh}))})});
+    const j=await r.json();
+    if(j.error) throw new Error(j.error);
+    const items=(j.exercises||[]).filter(e=>e&&e.type).slice(0,5);
+    if(items.length===0) throw new Error("AI không trả bài tập hợp lệ");
+    renderGrammarEx(g, items);
+  }catch(err){
+    area.innerHTML=`<div class="card">
+      <p class="small" style="color:var(--bad);font-weight:600">Không tạo được bài tập: ${esc(err.message)}</p>
+      <div class="row wrap" style="margin-top:10px;gap:8px">
+        <button class="btn btn-primary btn-sm" id="gRetry">Thử lại</button>
+        <button class="btn btn-ghost btn-sm" id="gBack">← Quay lại ngữ pháp</button></div></div>`;
+    document.getElementById("gRetry").onclick=()=>startGrammarEx(g);
+    document.getElementById("gBack").onclick=renderGrammar;
+  }
+}
+
+function renderGrammarEx(g, items){
+  const area=document.getElementById("grammarExArea");
+  area.innerHTML=`<div class="card" style="background:var(--red);color:#fff">
+      <div class="row spread wrap" style="gap:8px;align-items:center">
+        <div><b style="color:#fff">Bài tập · ${esc(g.title)}</b>
+        <div class="small" style="opacity:.85;margin-top:2px">HSK${g.lv} · ${items.length} câu · trắc nghiệm / sắp xếp / dịch</div></div>
+        <button class="btn btn-ghost btn-sm" id="gBackTop" style="background:#fff;border-color:#fff">← Ngữ pháp</button>
+      </div></div>`;
+  items.forEach((it,i)=>{
+    let card;
+    if(it.type==="mc") card=grMcCard(it,i);
+    else if(it.type==="order") card=grOrderCard(it,i);
+    else card=grTransCard(it,i);
+    if(card) area.append(card);
+  });
+  const foot=el(`<div class="row wrap" style="gap:8px;margin:4px 0 20px">
+    <button class="btn btn-primary btn-sm" id="gMore">↻ Tạo 5 câu khác</button>
+    <button class="btn btn-ghost btn-sm" id="gBack">← Quay lại ngữ pháp</button></div>`);
+  foot.querySelector("#gMore").onclick=()=>startGrammarEx(g);
+  foot.querySelector("#gBack").onclick=renderGrammar;
+  area.append(foot);
+  document.getElementById("gBackTop").onclick=renderGrammar;
+}
+
+function grHead(i,label){ return `<div class="small muted" style="font-weight:600;margin-bottom:6px">Câu ${i+1} · ${label}</div>`; }
+function grReveal(it){   // khối pinyin + nghĩa + giải thích dùng chung
+  return `${it.pinyin?`<div class="pinyin" style="margin-top:6px">${esc(it.pinyin)}</div>`:""}
+    ${it.vi?`<div class="meaning">${esc(it.vi)}</div>`:""}
+    ${it.explain?`<div class="small" style="margin-top:6px;line-height:1.55">${esc(it.explain)}</div>`:""}`;
+}
+
+/* --- Trắc nghiệm ABCD --- */
+function grMcCard(it,i){
+  const letters=["A","B","C","D"];
+  const card=el(`<div class="card">
+    ${grHead(i,"Chọn đáp án đúng")}
+    <div class="row spread" style="align-items:flex-start;gap:8px">
+      <div class="word-han" style="font-size:22px;line-height:1.6;flex:1">${esc(it.stem)}</div>
+      ${speakBtn((it.stem||"").replace(/[＿_]+/g,""))}
+    </div>
+    <div class="gopts" style="margin-top:10px">${it.options.map((o,k)=>
+      `<button class="opt" data-i="${k}"><b style="color:var(--red);margin-right:8px">${letters[k]}.</b><span class="han">${esc(o)}</span></button>`).join("")}</div>
+    <div class="gres"></div>
+  </div>`);
+  const wrap=card.querySelector(".gopts");
+  const res=card.querySelector(".gres");
+  wrap.addEventListener("click",e=>{
+    const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
+    wrap.dataset.done="1";
+    const pick=+b.dataset.i, ok=pick===it.correct;
+    wrap.querySelectorAll(".opt").forEach((o,k)=>{
+      if(k===it.correct) o.classList.add("correct");
+      else if(k===pick) o.classList.add("wrong");
+    });
+    speak((it.options[it.correct]||"").replace(/[＿_]+/g,""));
+    res.innerHTML=`<div class="card" style="margin-top:10px;border-color:${ok?'var(--green)':'var(--bad)'};background:${ok?'var(--green-bg)':'var(--bad-bg)'}">
+      <b style="color:${ok?'var(--green)':'var(--bad)'}">${ok?'✓ Chính xác!':'✗ Chưa đúng.'}</b>
+      ${grReveal(it)}</div>`;
+  });
+  return card;
+}
+
+/* --- Sắp xếp câu --- */
+function grNorm(s){ return String(s||"").replace(/[\s，。！？、,.!?；;：:]/g,""); }
+function grOrderCard(it,i){
+  const order=it.segments.slice();
+  const shuffled=order.map((s,idx)=>({s,idx})).sort(()=>Math.random()-0.5);
+  const card=el(`<div class="card">
+    ${grHead(i,"Sắp xếp thành câu đúng")}
+    ${it.vi?`<div class="small muted">Gợi ý nghĩa: <b>${esc(it.vi)}</b></div>`:""}
+    <div class="gbuild" style="margin-top:8px"></div>
+    <div class="gpool"></div>
+    <div class="row wrap" style="margin-top:10px;gap:8px">
+      <button class="btn btn-primary btn-sm gcheck">Kiểm tra</button>
+      <button class="btn btn-ghost btn-sm greset">↺ Làm lại</button>
+    </div>
+    <div class="gres"></div>
+  </div>`);
+  const build=card.querySelector(".gbuild");
+  const pool=card.querySelector(".gpool");
+  const res=card.querySelector(".gres");
+  const chosen=[];   // mảng chỉ số trong `order` theo thứ tự người dùng chọn
+  function paint(){
+    build.innerHTML="";
+    chosen.forEach((oi,pos)=>{
+      const b=el(`<button class="seg">${esc(order[oi])}</button>`);
+      b.onclick=()=>{ if(res.dataset.done) return; chosen.splice(pos,1); paint(); };
+      build.append(b);
+    });
+    pool.querySelectorAll(".seg").forEach(b=>{
+      b.classList.toggle("used", chosen.includes(+b.dataset.oi));
+    });
+  }
+  shuffled.forEach(({s,idx})=>{
+    const b=el(`<button class="seg" data-oi="${idx}">${esc(s)}</button>`);
+    b.onclick=()=>{ if(res.dataset.done||chosen.includes(idx)) return; chosen.push(idx); paint(); };
+    pool.append(b);
+  });
+  paint();
+  card.querySelector(".greset").onclick=()=>{ if(res.dataset.done) return; chosen.length=0; paint(); };
+  card.querySelector(".gcheck").onclick=()=>{
+    if(res.dataset.done) return;
+    if(chosen.length<order.length){ toast("Hãy dùng hết các cụm từ."); return; }
+    res.dataset.done="1";
+    const built=chosen.map(oi=>order[oi]).join("");
+    const ok = grNorm(built)===grNorm(order.join("")) || grNorm(built)===grNorm(it.answer);
+    build.querySelectorAll(".seg").forEach(b=>b.style.pointerEvents="none");
+    speak(it.answer||order.join(""));
+    res.innerHTML=`<div class="card" style="margin-top:10px;border-color:${ok?'var(--green)':'var(--bad)'};background:${ok?'var(--green-bg)':'var(--bad-bg)'}">
+      <b style="color:${ok?'var(--green)':'var(--bad)'}">${ok?'✓ Chính xác!':'✗ Chưa đúng.'}</b>
+      <div class="word-han" style="font-size:20px;margin-top:6px">${esc(it.answer||order.join(""))}</div>
+      ${grReveal(Object.assign({},it,{pinyin:it.pinyin,vi:""}))}</div>`;
+  };
+  return card;
+}
+
+/* --- Dịch câu Việt → Trung (tự chấm) --- */
+function grTransCard(it,i){
+  const card=el(`<div class="card">
+    ${grHead(i,"Dịch sang tiếng Trung")}
+    <div class="meaning" style="font-size:17px">${esc(it.vi)}</div>
+    <textarea class="text" rows="2" placeholder="Thử tự dịch rồi bấm xem đáp án…" style="margin-top:8px;font-family:'Noto Serif SC',serif;font-size:18px"></textarea>
+    <div class="row" style="margin-top:8px"><button class="btn btn-primary btn-sm grrev">👁 Xem đáp án</button></div>
+    <div class="gres"></div>
+  </div>`);
+  const res=card.querySelector(".gres");
+  card.querySelector(".grrev").onclick=function(){
+    if(res.dataset.done){ res.dataset.done=""; res.innerHTML=""; this.textContent="👁 Xem đáp án"; return; }
+    res.dataset.done="1"; this.textContent="🙈 Ẩn đáp án";
+    speak(it.answer);
+    res.innerHTML=`<div class="card" style="margin-top:10px">
+      <div class="row spread" style="align-items:flex-start;gap:8px">
+        <div class="word-han" style="font-size:20px;flex:1">${esc(it.answer)}</div>${speakBtn(it.answer)}</div>
+      ${grReveal(it)}</div>`;
+  };
+  return card;
 }
 
 /* ====================================================================
