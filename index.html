@@ -802,7 +802,26 @@ function renderSentences(){
  * NGỮ PHÁP — tra cứu + tạo bài tập bằng AI
  * ==================================================================== */
 let gFilter="all";
+let gExercise=null;                          // {g, items, answers} khi đang làm bài tập ngữ pháp
+
+/* ---- Lưu / khôi phục bài tập ngữ pháp đang làm dở (localStorage, chỉ máy này) ---- */
+const GRAM_KEY = LS_KEY + "_grammar";
+function saveGrammarEx(){
+  try{
+    if(gExercise && Array.isArray(gExercise.items) && gExercise.items.length){
+      localStorage.setItem(GRAM_KEY, JSON.stringify(
+        { gid:gExercise.g.id, items:gExercise.items, answers:gExercise.answers }));
+    }
+  }catch(e){}
+}
+function loadGrammarEx(){ try{ return JSON.parse(localStorage.getItem(GRAM_KEY)); }catch(e){ return null; } }
+function clearGrammarEx(){ gExercise=null; try{ localStorage.removeItem(GRAM_KEY); }catch(e){} }
+function countGrammarDone(saved){
+  return (saved.answers||[]).filter(x=> x && (x.picked!=null || x.done || x.revealed)).length;
+}
+
 function renderGrammar(){
+  gExercise=null;                            // rời màn bài tập → về danh sách
   document.getElementById("grammarExArea").innerHTML="";
   ["grammarLevels","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="");
   const w=document.getElementById("grammarLevels"); w.innerHTML="";
@@ -813,6 +832,26 @@ function renderGrammar(){
   const list=GRAMMAR.filter(g=>gFilter==="all"||g.lv===gFilter);
   document.getElementById("grammarCount").textContent=`${list.length} điểm ngữ pháp`;
   const box=document.getElementById("grammarList"); box.innerHTML="";
+
+  // Banner "tiếp tục bài tập đang làm dở" (tránh gọi lại AI, đỡ tốn token)
+  const saved=loadGrammarEx();
+  if(saved && Array.isArray(saved.items) && saved.items.length){
+    const g2=GRAMMAR.find(x=>x.id===saved.gid);
+    const title=g2?g2.title:(saved.gid||"bài tập");
+    const done=countGrammarDone(saved);
+    const banner=el(`<div class="card" style="border:1.5px solid var(--gold);background:var(--gold-bg,#fbf3df)">
+      <div class="row spread wrap" style="gap:8px">
+        <div><b>▶ Bài tập ngữ pháp đang làm dở</b>
+          <div class="small muted" style="margin-top:2px">${esc(title)} · ${saved.items.length} câu${done?` · đã làm ${done}/${saved.items.length}`:""}</div></div>
+        <div class="row" style="gap:6px">
+          <button class="btn btn-primary btn-sm" id="gResume">Tiếp tục</button>
+          <button class="btn btn-ghost btn-sm" id="gDiscard" style="color:var(--bad)">✕ Bỏ</button>
+        </div></div></div>`);
+    banner.querySelector("#gResume").onclick=resumeGrammarEx;
+    banner.querySelector("#gDiscard").onclick=()=>{ if(confirm("Bỏ bài tập ngữ pháp đang làm dở?")){ clearGrammarEx(); renderGrammar(); } };
+    box.append(banner);
+  }
+
   list.forEach(g=>{
     const egHtml=(g.examples||[]).map(e=>`<div class="card" style="padding:8px 12px;margin:6px 0 0;box-shadow:none">
         <div class="row spread wrap"><div>
@@ -862,7 +901,8 @@ async function startGrammarEx(g){
     if(j.error) throw new Error(j.error);
     const items=(j.exercises||[]).filter(e=>e&&e.type).slice(0,5);
     if(items.length===0) throw new Error("AI không trả bài tập hợp lệ");
-    renderGrammarEx(g, items);
+    clearGrammarEx();                     // bỏ bài cũ trước khi lưu bài mới
+    renderGrammarEx(g, items);            // renderGrammarEx tự set gExercise + lưu
   }catch(err){
     area.innerHTML=`<div class="card">
       <p class="small" style="color:var(--bad);font-weight:600">Không tạo được bài tập: ${esc(err.message)}</p>
@@ -874,7 +914,20 @@ async function startGrammarEx(g){
   }
 }
 
-function renderGrammarEx(g, items){
+function resumeGrammarEx(){
+  const saved=loadGrammarEx();
+  const g=saved && GRAMMAR.find(x=>x.id===saved.gid);
+  if(!g || !Array.isArray(saved.items) || !saved.items.length){ clearGrammarEx(); renderGrammar(); return; }
+  ["grammarLevels","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="none");
+  renderGrammarEx(g, saved.items, saved.answers);
+  document.getElementById("grammarExArea").scrollIntoView({block:"start",behavior:"smooth"});
+}
+
+function renderGrammarEx(g, items, answers){
+  answers = (Array.isArray(answers) && answers.length===items.length) ? answers : items.map(()=>({}));
+  gExercise = { g, items, answers };
+  saveGrammarEx();                          // lưu ngay bài vừa tạo/khôi phục (dù chưa trả lời)
+  const onChange=(i)=>(st)=>{ answers[i]=st; saveGrammarEx(); };
   const area=document.getElementById("grammarExArea");
   area.innerHTML=`<div class="card" style="background:var(--red);color:#fff">
       <div class="row spread wrap" style="gap:8px;align-items:center">
@@ -883,10 +936,11 @@ function renderGrammarEx(g, items){
         <button class="btn btn-ghost btn-sm" id="gBackTop" style="background:#fff;border-color:#fff">← Ngữ pháp</button>
       </div></div>`;
   items.forEach((it,i)=>{
+    const sv=answers[i]||{};
     let card;
-    if(it.type==="mc") card=grMcCard(it,i);
-    else if(it.type==="order") card=grOrderCard(it,i);
-    else card=grTransCard(it,i);
+    if(it.type==="mc") card=grMcCard(it,i,sv,onChange(i));
+    else if(it.type==="order") card=grOrderCard(it,i,sv,onChange(i));
+    else card=grTransCard(it,i,sv,onChange(i));
     if(card) area.append(card);
   });
   const foot=el(`<div class="row wrap" style="gap:8px;margin:4px 0 20px">
@@ -906,7 +960,7 @@ function grReveal(it){   // khối pinyin + nghĩa + giải thích dùng chung
 }
 
 /* --- Trắc nghiệm ABCD --- */
-function grMcCard(it,i){
+function grMcCard(it,i,saved,onChange){
   const letters=["A","B","C","D"];
   const card=el(`<div class="card">
     ${grHead(i,"Chọn đáp án đúng")}
@@ -920,25 +974,32 @@ function grMcCard(it,i){
   </div>`);
   const wrap=card.querySelector(".gopts");
   const res=card.querySelector(".gres");
-  wrap.addEventListener("click",e=>{
-    const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
+  function mark(pick, quiet){
     wrap.dataset.done="1";
-    const pick=+b.dataset.i, ok=pick===it.correct;
+    const ok=pick===it.correct;
     wrap.querySelectorAll(".opt").forEach((o,k)=>{
+      o.style.pointerEvents="none";
       if(k===it.correct) o.classList.add("correct");
       else if(k===pick) o.classList.add("wrong");
     });
-    speak((it.options[it.correct]||"").replace(/[＿_]+/g,""));
+    if(!quiet) speak((it.options[it.correct]||"").replace(/[＿_]+/g,""));
     res.innerHTML=`<div class="card" style="margin-top:10px;border-color:${ok?'var(--green)':'var(--bad)'};background:${ok?'var(--green-bg)':'var(--bad-bg)'}">
       <b style="color:${ok?'var(--green)':'var(--bad)'}">${ok?'✓ Chính xác!':'✗ Chưa đúng.'}</b>
       ${grReveal(it)}</div>`;
+  }
+  wrap.addEventListener("click",e=>{
+    const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
+    const pick=+b.dataset.i;
+    mark(pick,false);
+    onChange({picked:pick});
   });
+  if(saved && saved.picked!=null) mark(saved.picked, true);   // khôi phục: không đọc loa
   return card;
 }
 
 /* --- Sắp xếp câu --- */
 function grNorm(s){ return String(s||"").replace(/[\s，。！？、,.!?；;：:]/g,""); }
-function grOrderCard(it,i){
+function grOrderCard(it,i,saved,onChange){
   const order=it.segments.slice();
   const shuffled=order.map((s,idx)=>({s,idx})).sort(()=>Math.random()-0.5);
   const card=el(`<div class="card">
@@ -955,12 +1016,14 @@ function grOrderCard(it,i){
   const build=card.querySelector(".gbuild");
   const pool=card.querySelector(".gpool");
   const res=card.querySelector(".gres");
-  const chosen=[];   // mảng chỉ số trong `order` theo thứ tự người dùng chọn
+  // khôi phục thứ tự đã ghép (lọc chỉ số hợp lệ)
+  const chosen=(saved && Array.isArray(saved.chosen)?saved.chosen:[]).filter(n=>Number.isInteger(n)&&n>=0&&n<order.length);
+  function persist(done){ onChange({ chosen:chosen.slice(), done:!!done }); }
   function paint(){
     build.innerHTML="";
     chosen.forEach((oi,pos)=>{
       const b=el(`<button class="seg">${esc(order[oi])}</button>`);
-      b.onclick=()=>{ if(res.dataset.done) return; chosen.splice(pos,1); paint(); };
+      b.onclick=()=>{ if(res.dataset.done) return; chosen.splice(pos,1); paint(); persist(false); };
       build.append(b);
     });
     pool.querySelectorAll(".seg").forEach(b=>{
@@ -969,29 +1032,33 @@ function grOrderCard(it,i){
   }
   shuffled.forEach(({s,idx})=>{
     const b=el(`<button class="seg" data-oi="${idx}">${esc(s)}</button>`);
-    b.onclick=()=>{ if(res.dataset.done||chosen.includes(idx)) return; chosen.push(idx); paint(); };
+    b.onclick=()=>{ if(res.dataset.done||chosen.includes(idx)) return; chosen.push(idx); paint(); persist(false); };
     pool.append(b);
   });
   paint();
-  card.querySelector(".greset").onclick=()=>{ if(res.dataset.done) return; chosen.length=0; paint(); };
-  card.querySelector(".gcheck").onclick=()=>{
-    if(res.dataset.done) return;
-    if(chosen.length<order.length){ toast("Hãy dùng hết các cụm từ."); return; }
+  card.querySelector(".greset").onclick=()=>{ if(res.dataset.done) return; chosen.length=0; paint(); persist(false); };
+  function doCheck(quiet){
     res.dataset.done="1";
     const built=chosen.map(oi=>order[oi]).join("");
     const ok = grNorm(built)===grNorm(order.join("")) || grNorm(built)===grNorm(it.answer);
     build.querySelectorAll(".seg").forEach(b=>b.style.pointerEvents="none");
-    speak(it.answer||order.join(""));
+    if(!quiet) speak(it.answer||order.join(""));
     res.innerHTML=`<div class="card" style="margin-top:10px;border-color:${ok?'var(--green)':'var(--bad)'};background:${ok?'var(--green-bg)':'var(--bad-bg)'}">
       <b style="color:${ok?'var(--green)':'var(--bad)'}">${ok?'✓ Chính xác!':'✗ Chưa đúng.'}</b>
       <div class="word-han" style="font-size:20px;margin-top:6px">${esc(it.answer||order.join(""))}</div>
-      ${grReveal(Object.assign({},it,{pinyin:it.pinyin,vi:""}))}</div>`;
+      ${grReveal(Object.assign({},it,{vi:""}))}</div>`;
+  }
+  card.querySelector(".gcheck").onclick=()=>{
+    if(res.dataset.done) return;
+    if(chosen.length<order.length){ toast("Hãy dùng hết các cụm từ."); return; }
+    doCheck(false); persist(true);
   };
+  if(saved && saved.done && chosen.length===order.length) doCheck(true);   // khôi phục: đã kiểm tra
   return card;
 }
 
 /* --- Dịch câu Việt → Trung (tự chấm) --- */
-function grTransCard(it,i){
+function grTransCard(it,i,saved,onChange){
   const card=el(`<div class="card">
     ${grHead(i,"Dịch sang tiếng Trung")}
     <div class="meaning" style="font-size:17px">${esc(it.vi)}</div>
@@ -1000,15 +1067,25 @@ function grTransCard(it,i){
     <div class="gres"></div>
   </div>`);
   const res=card.querySelector(".gres");
-  card.querySelector(".grrev").onclick=function(){
-    if(res.dataset.done){ res.dataset.done=""; res.innerHTML=""; this.textContent="👁 Xem đáp án"; return; }
-    res.dataset.done="1"; this.textContent="🙈 Ẩn đáp án";
-    speak(it.answer);
-    res.innerHTML=`<div class="card" style="margin-top:10px">
-      <div class="row spread" style="align-items:flex-start;gap:8px">
-        <div class="word-han" style="font-size:20px;flex:1">${esc(it.answer)}</div>${speakBtn(it.answer)}</div>
-      ${grReveal(it)}</div>`;
-  };
+  const ta=card.querySelector("textarea");
+  const btn=card.querySelector(".grrev");
+  if(saved && saved.draft) ta.value=saved.draft;
+  function report(){ onChange({ revealed: !!res.dataset.done, draft: ta.value }); }
+  function reveal(show, quiet){
+    if(show){
+      res.dataset.done="1"; btn.textContent="🙈 Ẩn đáp án";
+      if(!quiet) speak(it.answer);
+      res.innerHTML=`<div class="card" style="margin-top:10px">
+        <div class="row spread" style="align-items:flex-start;gap:8px">
+          <div class="word-han" style="font-size:20px;flex:1">${esc(it.answer)}</div>${speakBtn(it.answer)}</div>
+        ${grReveal(it)}</div>`;
+    }else{
+      res.dataset.done=""; res.innerHTML=""; btn.textContent="👁 Xem đáp án";
+    }
+  }
+  ta.addEventListener("input", report);
+  btn.onclick=()=>{ reveal(!res.dataset.done, false); report(); };
+  if(saved && saved.revealed) reveal(true, true);   // khôi phục: hiện lại đáp án, không đọc loa
   return card;
 }
 
@@ -1888,10 +1965,11 @@ async function syncPush(auto){
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="hidden"){
     savePractice();                              // lưu bài luyện tập đang làm dở (kể cả chữ đang gõ)
+    saveGrammarEx();                             // lưu nốt bài tập ngữ pháp đang làm dở
     if(dirty && VOCAB_URL && state.code){ clearTimeout(autoSyncTimer); syncPush(true); }
   }
 });
-window.addEventListener("pagehide", savePractice);   // đóng tab / tắt máy trên nhiều trình duyệt
+window.addEventListener("pagehide", ()=>{ savePractice(); saveGrammarEx(); });   // đóng tab / tắt máy
 async function syncPull(){
   if(!VOCAB_URL){ toast("Chưa cấu hình máy chủ đồng bộ"); return; }
   if(!state.code){ toast("Hãy nhập mã cá nhân ở tab Cài đặt"); return; }
