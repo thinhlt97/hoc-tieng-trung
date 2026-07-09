@@ -178,7 +178,8 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
   · KV title `ZH_VOCAB` (id `b57e55d6d3a1461287254059f2178075`, binding `env.VOCAB`).
 - ✅ **proxy (Vercel, scope `thinhlt1069s-projects`, project `proxy`):**
   https://proxy-one-olive-47.vercel.app · `/api/tts` (giọng Google) ✅ chạy,
-  `/api/chinese` (ví dụ AI) ⏳ **còn thiếu env `GEMINI_API_KEY` / `GROQ_API_KEY`**.
+  `/api/chinese` ✅ chạy — `GEMINI_API_KEY` đã có (ví dụ AI, đề, bài tập ngữ pháp
+  qua Gemini hoạt động thật; GROQ chưa xác nhận có key hay chưa).
   Deploy lại: `cd proxy && vercel deploy --prod --yes --scope thinhlt1069s-projects`.
 - ✅ **1191 từ** (HSK1 151 + HSK2 147 + HSK3 295 + HSK4 598) + 33 câu;
   **8 kiểu luyện tập** + SRS. HSK3/HSK4 dịch từ danh sách chuẩn HSK 2012
@@ -219,9 +220,8 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
   (`.gformula`) + giải thích + 2 ví dụ (có loa). Nút “🎯 Tạo bài tập” → `startGrammarEx(g)`
   gọi proxy `task:"grammar"` → `renderGrammarEx` hiện 5 câu trộn 3 dạng: trắc nghiệm ABCD
   (`grMcCard`), sắp xếp cụm từ (`grOrderCard`, bấm cụm để ghép/gỡ, `grNorm` so khớp bỏ dấu
-  câu), dịch Việt→Trung (`grTransCard`, nút “👁 Xem đáp án”). KHÔNG tính vào SRS. Khi chưa
-  bật AI (thiếu key) thì báo cần AI. **Cần thêm env `GEMINI_API_KEY`/`GROQ_API_KEY` trên
-  Vercel** để nút hoạt động (giống các tính năng AI khác).
+  câu), dịch Việt→Trung (`grTransCard`, nút “👁 Xem đáp án”). KHÔNG tính vào SRS. Đã DEPLOY
+  và chạy thật (Gemini trên proxy đã có key). Khi chưa bật AI thì báo cần AI.
 - ⏳ HSK5 sẽ bổ sung dần vào `data/hsk.js` (cùng cách: tải `…L5.txt` từ
   `glxxyz/hskhsk.com`, dịch nghĩa Việt). HSK5 ~1300 từ.
 
