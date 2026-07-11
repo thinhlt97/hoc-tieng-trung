@@ -729,6 +729,9 @@ function aiBlock(x){
  * ==================================================================== */
 let vFilter={level:"all", cat:"all", q:""};
 document.getElementById("vocabSearch").addEventListener("input",e=>{
+  // Gõ số thanh điệu -> tự đổi thành dấu ngay trong ô (như phần Nghe → gõ pinyin): ni3 hao3 => nǐ hǎo
+  const conv=pyNumToTone(e.target.value);
+  if(conv!==e.target.value) e.target.value=conv;
   vFilter.q=e.target.value.trim(); renderVocab();
 });
 function renderVocab(){
@@ -744,10 +747,11 @@ function renderVocab(){
   cats.forEach(c=> catWrap.append(chip(c, vFilter.cat===c, ()=>{vFilter.cat=c;renderVocab();})));
 
   const q=vFilter.q.toLowerCase();
+  const qp=normPinyin(q);   // pinyin bỏ dấu thanh → gõ có dấu hay không đều khớp (như phần Nghe→gõ pinyin)
   const list=WORDS.filter(w=>
     (vFilter.level==="all"||w.lv===vFilter.level) &&
     (vFilter.cat==="all"||w.cat===vFilter.cat) &&
-    (!q || w.w.includes(q) || w.p.toLowerCase().includes(q) || w.vi.toLowerCase().includes(q))
+    (!q || w.w.includes(q) || (qp && normPinyin(w.p).includes(qp)) || w.vi.toLowerCase().includes(q))
   );
   document.getElementById("vocabCount").textContent=`${list.length} từ`;
   const box=document.getElementById("vocabList"); box.innerHTML="";
