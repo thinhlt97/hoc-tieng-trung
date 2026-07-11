@@ -233,6 +233,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
     <h2 class="section">语法 · Ngữ pháp</h2>
     <p class="lead">Tổng hợp ngữ pháp HSK1–HSK3. Mỗi điểm có cấu trúc, giải thích và ví dụ; bấm “Tạo bài tập” để AI sinh 5 câu luyện riêng điểm đó (trắc nghiệm · sắp xếp · dịch).</p>
     <div class="chips" id="grammarLevels"></div>
+    <div class="chips" id="grammarStatus"></div>
     <p class="status" id="grammarCount"></p>
     <div id="grammarList"></div>
     <div id="grammarExArea"></div>
@@ -369,6 +370,7 @@ function defaultState(){
   return {
     code: "",
     progress: {},            // { [word]: {group:1|2|3, addedAt, last, reps, correct} }
+    grammarDone: {},         // { [grammarId]: timestamp } — điểm ngữ pháp đã bấm "đã học xong"
     stats: { streak:0, lastDay:"", reviewsToday:0, dayKey:"", history:{} },
     settings: { dailyNew:15, provider:"gemini", rate:0.9, voiceURI:"" },
     updatedAt: 0,
@@ -806,8 +808,17 @@ function renderSentences(){
  * NGỮ PHÁP — tra cứu + tạo bài tập bằng AI
  * ==================================================================== */
 let gFilter="all";
+let gStatus="all";                           // "all" | "todo" | "done" — lọc theo đã học chưa
 let gExercise=null;                          // {g, items, answers} khi đang làm bài tập ngữ pháp
 let gView="list";                            // "list" | "exercise" — nhớ màn đang xem để giữ khi chuyển tab
+
+/* ---- Điểm ngữ pháp đã học (bấm "đã học xong" ở cuối bài tập) ---- */
+function isGrammarDone(id){ return !!(state.grammarDone && state.grammarDone[id]); }
+function setGrammarDone(id, done){
+  if(!state.grammarDone) state.grammarDone={};
+  if(done) state.grammarDone[id]=Date.now(); else delete state.grammarDone[id];
+  save(); markDirty();
+}
 
 /* ---- Lưu / khôi phục bài tập ngữ pháp đang làm dở (localStorage, chỉ máy này) ---- */
 const GRAM_KEY = LS_KEY + "_grammar";
@@ -835,14 +846,22 @@ function backToGrammarList(){ gView="list"; renderGrammarList(); }
 function renderGrammarList(){
   gView="list"; gExercise=null;              // đang xem danh sách
   document.getElementById("grammarExArea").innerHTML="";
-  ["grammarLevels","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="");
+  ["grammarLevels","grammarStatus","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="");
   const w=document.getElementById("grammarLevels"); w.innerHTML="";
   const levels=[...new Set(GRAMMAR.map(x=>x.lv))].sort((a,b)=>a-b);
   w.append(chip("Tất cả", gFilter==="all", ()=>{gFilter="all";renderGrammarList();}));
   levels.forEach(l=> w.append(chip("HSK"+l, gFilter===l, ()=>{gFilter=l;renderGrammarList();})));
 
-  const list=GRAMMAR.filter(g=>gFilter==="all"||g.lv===gFilter);
-  document.getElementById("grammarCount").textContent=`${list.length} điểm ngữ pháp`;
+  // chip lọc theo trạng thái đã học (dựa nút "đã học xong")
+  const byLv=GRAMMAR.filter(g=>gFilter==="all"||g.lv===gFilter);
+  const doneCount=byLv.filter(g=>isGrammarDone(g.id)).length;
+  const sw=document.getElementById("grammarStatus"); sw.innerHTML="";
+  sw.append(chip(`Tất cả (${byLv.length})`, gStatus==="all", ()=>{gStatus="all";renderGrammarList();}));
+  sw.append(chip(`Chưa học (${byLv.length-doneCount})`, gStatus==="todo", ()=>{gStatus="todo";renderGrammarList();}));
+  sw.append(chip(`Đã học (${doneCount})`, gStatus==="done", ()=>{gStatus="done";renderGrammarList();}));
+
+  const list=byLv.filter(g=> gStatus==="all" || (gStatus==="done")===isGrammarDone(g.id));
+  document.getElementById("grammarCount").textContent=`${list.length} điểm ngữ pháp · đã học ${doneCount}/${byLv.length}`;
   const box=document.getElementById("grammarList"); box.innerHTML="";
 
   // Banner "tiếp tục bài tập đang làm dở" (tránh gọi lại AI, đỡ tốn token)
@@ -871,19 +890,22 @@ function renderGrammarList(){
           <div class="pinyin">${esc(e.p)}</div>
           <div class="meaning">${esc(e.vi)}</div>
         </div><div class="row">${speakBtn(e.zh)}</div></div></div>`).join("");
+    const done=isGrammarDone(g.id);
     const card=el(`<div class="card">
       <div class="row spread wrap" style="gap:8px">
         <b style="font-size:16px">${esc(g.title)}</b>
-        <span class="cat">HSK${g.lv}</span>
+        <span class="row" style="gap:6px">${done?`<span class="cat" style="background:var(--green,#1a7f37);color:#fff;padding:2px 8px;border-radius:999px">✓ Đã học</span>`:""}<span class="cat">HSK${g.lv}</span></span>
       </div>
       <div class="gformula">${esc(g.formula)}</div>
       <p class="small" style="margin:8px 0 0;line-height:1.6">${esc(g.explain)}</p>
       ${egHtml}
-      <div class="row gact" style="margin-top:12px"></div>
+      <div class="row gact wrap" style="margin-top:12px;gap:8px"></div>
     </div>`);
     const btn=el(`<button class="btn btn-primary btn-sm">🎯 Tạo bài tập</button>`);
     btn.onclick=()=>startGrammarEx(g);
-    card.querySelector(".gact").append(btn);
+    const toggle=el(`<button class="btn btn-ghost btn-sm">${done?"↺ Bỏ đánh dấu đã học":"✓ Đánh dấu đã học"}</button>`);
+    toggle.onclick=()=>{ setGrammarDone(g.id, !done); renderGrammarList(); };
+    card.querySelector(".gact").append(btn, toggle);
     box.append(card);
   });
 }
@@ -892,7 +914,7 @@ async function startGrammarEx(g){
   const area=document.getElementById("grammarExArea");
   gView="exercise";                          // vào luồng bài tập → giữ khi chuyển tab
   // ẩn danh sách, tập trung vào bài tập
-  ["grammarLevels","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="none");
+  ["grammarLevels","grammarStatus","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="none");
   if(!PROXY_URL){
     area.innerHTML=`<div class="card"><p class="small" style="color:var(--bad);font-weight:600">Tính năng tạo bài tập cần AI.</p>
       <p class="small muted">Hãy cấu hình <code>PROXY_URL</code> (proxy Vercel <code>/api/chinese</code>) và thêm khóa AI để bật.</p>
@@ -931,7 +953,7 @@ function resumeGrammarEx(scroll){
   const saved=loadGrammarEx();
   const g=saved && GRAMMAR.find(x=>x.id===saved.gid);
   if(!g || !Array.isArray(saved.items) || !saved.items.length){ clearGrammarEx(); renderGrammarList(); return; }
-  ["grammarLevels","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="none");
+  ["grammarLevels","grammarStatus","grammarCount","grammarList"].forEach(id=>document.getElementById(id).style.display="none");
   renderGrammarEx(g, saved.items, saved.answers);
   if(scroll) document.getElementById("grammarExArea").scrollIntoView({block:"start",behavior:"smooth"});
 }
@@ -958,8 +980,16 @@ function renderGrammarEx(g, items, answers){
     if(card) area.append(card);
   });
   const foot=el(`<div class="row wrap" style="gap:8px;margin:4px 0 20px">
-    <button class="btn btn-primary btn-sm" id="gMore">↻ Tạo 5 câu khác</button>
+    <button class="btn btn-primary btn-sm" id="gDone"></button>
+    <button class="btn btn-ghost btn-sm" id="gMore">↻ Tạo 5 câu khác</button>
     <button class="btn btn-ghost btn-sm" id="gBack">← Quay lại ngữ pháp</button></div>`);
+  const doneBtn=foot.querySelector("#gDone");
+  const syncDoneBtn=()=>{ const d=isGrammarDone(g.id);
+    doneBtn.textContent=d?"✓ Đã học xong (bấm để bỏ)":"✓ Đánh dấu đã học xong";
+    doneBtn.className="btn btn-sm "+(d?"btn-ghost":"btn-primary"); };
+  syncDoneBtn();
+  doneBtn.onclick=()=>{ const d=!isGrammarDone(g.id); setGrammarDone(g.id, d); syncDoneBtn();
+    toast(d?`Đã đánh dấu học xong: ${g.title}`:"Đã bỏ đánh dấu đã học"); };
   foot.querySelector("#gMore").onclick=()=>startGrammarEx(g);
   foot.querySelector("#gBack").onclick=backToGrammarList;
   area.append(foot);
@@ -2011,6 +2041,11 @@ function mergeStates(a,b){
   for(const d in hb) hist[d]=Math.max(hist[d]||0, hb[d]||0);
   if((b.updatedAt||0)>(a.updatedAt||0)){ out.stats=b.stats||out.stats; out.settings=Object.assign({},out.settings,b.settings); }
   out.stats.history=hist;
+  // ngữ pháp đã học: gộp union, giữ mốc thời gian sớm hơn nếu có ở cả hai
+  const ga=a.grammarDone||{}, gb=b.grammarDone||{};
+  const gd=Object.assign({},ga);
+  for(const id in gb) gd[id]=Math.min(gd[id]||gb[id], gb[id]);
+  out.grammarDone=gd;
   out.code=a.code||b.code;
   return out;
 }
