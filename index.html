@@ -1013,7 +1013,10 @@ function grMcCard(it,i,saved,onChange){
       ${speakBtn((it.stem||"").replace(/[＿_]+/g,""))}
     </div>
     <div class="gopts" style="margin-top:10px">${it.options.map((o,k)=>
-      `<button class="opt" data-i="${k}"><b style="color:var(--red);margin-right:8px">${letters[k]}.</b><span class="han">${esc(o)}</span></button>`).join("")}</div>
+      `<div class="optrow" style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+        <button class="opt" data-i="${k}" style="margin-bottom:0;flex:1"><b style="color:var(--red);margin-right:8px">${letters[k]}.</b><span class="han">${esc(o)}</span></button>
+        <button class="opt-copy speak" data-i="${k}" title="Sao chép để tra nghĩa" style="display:none;flex:none">📋</button>
+      </div>`).join("")}</div>
     <div class="gres"></div>
   </div>`);
   const wrap=card.querySelector(".gopts");
@@ -1026,12 +1029,16 @@ function grMcCard(it,i,saved,onChange){
       if(k===it.correct) o.classList.add("correct");
       else if(k===pick) o.classList.add("wrong");
     });
+    // hiện nút sao chép mọi phương án để tra nghĩa (sau khi đã chọn)
+    wrap.querySelectorAll(".opt-copy").forEach(cb=>{ cb.style.display=""; });
     if(!quiet) speak((it.options[it.correct]||"").replace(/[＿_]+/g,""));
     res.innerHTML=`<div class="card" style="margin-top:10px;border-color:${ok?'var(--green)':'var(--bad)'};background:${ok?'var(--green-bg)':'var(--bad-bg)'}">
       <b style="color:${ok?'var(--green)':'var(--bad)'}">${ok?'✓ Chính xác!':'✗ Chưa đúng.'}</b>
       ${grReveal(it)}</div>`;
   }
   wrap.addEventListener("click",e=>{
+    const cp=e.target.closest(".opt-copy");
+    if(cp){ const han=cp.closest(".optrow").querySelector(".han"); if(han) copyText(han.textContent); return; }
     const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
     const pick=+b.dataset.i;
     mark(pick,false);
