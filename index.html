@@ -249,6 +249,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
       <button class="chip" data-m="exam">🎯 Trắc nghiệm 5 câu</button>
       <button class="chip" data-m="zhvi">📝 Dịch Trung → Việt</button>
       <button class="chip" data-m="vi2zh">📝 Dịch Việt → Trung</button>
+      <button class="chip" data-m="sentpy">🎧 Nghe câu → gõ pinyin</button>
     </div>
     <div class="card" id="practiceScopeCard">
       <!-- chọn trình độ — chỉ dùng cho các bài AI sinh câu (Dịch Trung → Việt) -->
@@ -536,23 +537,23 @@ function pickVoices(){
 if('speechSynthesis' in window){ pickVoices(); speechSynthesis.onvoiceschanged=pickVoices; }
 
 let curAudio=null;
-function speak(text){
-  if(TTS_URL){ playRemote(text); return; }
-  speakLocal(text);
+function speak(text, rate){                                    // rate: bỏ trống ⇒ theo Cài đặt
+  if(TTS_URL){ playRemote(text, rate); return; }
+  speakLocal(text, rate);
 }
-function playRemote(text){
+function playRemote(text, rate){
   try{ if(curAudio){ curAudio.pause(); } }catch(e){}
   const a=new Audio(TTS_URL+"?q="+encodeURIComponent(text));
-  a.playbackRate=Math.max(0.6, Math.min(1.2, state.settings.rate||0.9));
-  a.onerror=()=>speakLocal(text);                              // lỗi mạng → quay về Web Speech
+  a.playbackRate=Math.max(0.6, Math.min(1.2, rate || state.settings.rate || 0.9));
+  a.onerror=()=>speakLocal(text, rate);                        // lỗi mạng → quay về Web Speech
   curAudio=a;
-  a.play().catch(()=>speakLocal(text));
+  a.play().catch(()=>speakLocal(text, rate));
 }
-function speakLocal(text){
+function speakLocal(text, rate){
   if(!('speechSynthesis' in window)){ toast("Trình duyệt không hỗ trợ phát âm"); return; }
   speechSynthesis.cancel();
   const u=new SpeechSynthesisUtterance(text);
-  u.lang="zh-CN"; u.rate=state.settings.rate||0.9;
+  u.lang="zh-CN"; u.rate=rate || state.settings.rate || 0.9;
   if(zhVoice) u.voice=zhVoice;
   speechSynthesis.speak(u);
 }
@@ -1181,14 +1182,14 @@ function grTransCard(it,i,saved,onChange){
  * LUYỆN TẬP
  * ==================================================================== */
 let pMode="typepy";
-const AI_MODES=["zhvi","vi2zh"];            // các kiểu bài AI tự sinh câu → có chọn trình độ HSK1-3
+const AI_MODES=["zhvi","vi2zh","sentpy"];   // các kiểu bài AI tự sinh câu → có chọn trình độ HSK1-3
 function aiLevel(){ return state.settings.aiLevel || "HSK1"; }
 function syncLevelChips(){
   const box=document.getElementById("aiLevels");
   box.style.display = AI_MODES.includes(pMode) ? "flex" : "none";
   box.querySelectorAll(".chip").forEach(c=>c.classList.toggle("active", c.dataset.lv===aiLevel()));
   document.getElementById("startPractice").textContent =
-    AI_MODES.includes(pMode) ? "Bắt đầu dịch câu" : "Bắt đầu 15 câu";
+    pMode==="sentpy" ? "Bắt đầu nghe" : (AI_MODES.includes(pMode) ? "Bắt đầu dịch câu" : "Bắt đầu 15 câu");
 }
 document.getElementById("aiLevels").addEventListener("click",e=>{
   const b=e.target.closest("button[data-lv]"); if(!b) return;
@@ -1212,7 +1213,7 @@ document.getElementById("viewScopeList").onclick=function(){
 function renderScopeList(){
   const box=document.getElementById("scopeListBox");
   if(AI_MODES.includes(pMode)){
-    box.innerHTML=`<p class="small muted">Các bài dịch do AI sinh câu theo trình độ ${esc(aiLevel())} đã chọn ở trên, không dùng danh sách từ đang ôn.</p>`;
+    box.innerHTML=`<p class="small muted">Bài này do AI sinh câu theo trình độ ${esc(aiLevel())} đã chọn ở trên, không dùng danh sách từ đang ôn.</p>`;
     return;
   }
   const g=reviewGroups();
@@ -1234,8 +1235,9 @@ function updateScopeInfo(){
   const g=reviewGroups();
   if(AI_MODES.includes(pMode)){
     const n=loadHist().length;
-    const dir=pMode==="vi2zh" ? "Việt → Trung" : "Trung → Việt";
-    el.textContent=`AI sinh câu ${aiLevel()} để bạn tự dịch ${dir} · ${n} câu đã làm trong 7 ngày qua`;
+    const what = pMode==="sentpy" ? "để bạn nghe rồi gõ pinyin"
+      : (pMode==="vi2zh" ? "để bạn tự dịch Việt → Trung" : "để bạn tự dịch Trung → Việt");
+    el.textContent=`AI sinh câu ${aiLevel()} ${what} · ${n} câu đã làm trong 7 ngày qua`;
     return;
   }
   const total=g[1].length+g[2].length+g[3].length;
@@ -1251,8 +1253,8 @@ const emptyReviewHtml=`<div class="empty"><span class="em">空</span>Chưa có t
 
 /* ---- Lưu / khôi phục bài luyện tập đang làm dở (localStorage, chỉ trên máy này) ---- */
 const PRAC_KEY = LS_KEY + "_practice";
-const MODE_NAMES = { typepy:"Nghe → gõ pinyin", exam:"Trắc nghiệm 5 câu",
-  zhvi:"Dịch Trung → Việt", vi2zh:"Dịch Việt → Trung" };
+const MODE_NAMES = { typepy:"Nghe → gõ pinyin (từ)", exam:"Trắc nghiệm 5 câu",
+  zhvi:"Dịch Trung → Việt", vi2zh:"Dịch Việt → Trung", sentpy:"Nghe câu → gõ pinyin" };
 function snapshotCard(){        // đọc trạng thái câu đang làm từ DOM
   const m=session.mode;
   if(m==="typepy"){
@@ -1270,6 +1272,8 @@ function snapshotPractice(){
     const t=transState;
     if(t.mode==="vi2zh")
       return {mode:"vi2zh", items:t.items, level:t.level, revealed:t.revealed||[], answers:t.answers||[]};
+    if(t.mode==="sentpy")
+      return {mode:"sentpy", items:t.items, i:t.i, level:t.level, value:t.value||"", checked:!!t.checked};
     return {mode:"zhvi", items:t.items, i:t.i, level:t.level, revealed:!!t.revealed};
   }
   if(!session || session.i>=session.total) return null;
@@ -1299,10 +1303,13 @@ function resumePractice(){
   if(!b){ toast("Không còn bài đang làm dở"); renderPracticeHome(); return; }
   const slb=document.getElementById("scopeListBox");
   if(slb){ slb.style.display="none"; document.getElementById("viewScopeList").textContent="👁 Xem từ sẽ luyện"; }
-  if(b.mode==="zhvi" || b.mode==="vi2zh"){
+  if(b.mode==="zhvi" || b.mode==="vi2zh" || b.mode==="sentpy"){
     if(!b.items || !b.items.length){ clearPractice(); toast("Bài dở không khôi phục được"); renderPracticeHome(); return; }
     session=null;
-    if(b.mode==="vi2zh"){
+    if(b.mode==="sentpy"){
+      transState={mode:"sentpy", items:b.items, i:b.i||0, level:b.level||aiLevel(), value:b.value||"", checked:!!b.checked};
+      renderSentpy();
+    }else if(b.mode==="vi2zh"){
       transState={mode:"vi2zh", items:b.items, level:b.level||aiLevel(), revealed:b.revealed||[], answers:b.answers||[]};
       renderVi2zh();
     }else{
@@ -1329,8 +1336,8 @@ function renderPracticeHome(){
   const area=document.getElementById("practiceArea");
   const b=loadPractice();
   if(!b) return;
-  const label = (b.mode==="zhvi" || b.mode==="vi2zh")
-    ? `📝 ${MODE_NAMES[b.mode]} · ${esc(b.level||"")} · ${b.mode==="vi2zh" ? `${(b.items||[]).length} câu` : `câu ${(b.i||0)+1}/${(b.items||[]).length}`}`
+  const label = (b.mode==="zhvi" || b.mode==="vi2zh" || b.mode==="sentpy")
+    ? `${MODE_NAMES[b.mode]} · ${esc(b.level||"")} · ${b.mode==="vi2zh" ? `${(b.items||[]).length} câu` : `câu ${(b.i||0)+1}/${(b.items||[]).length}`}`
     : `${MODE_NAMES[b.mode]||b.mode} · câu ${(b.i||0)+1}/${b.total||"?"} · đúng ${b.correct||0}`;
   area.innerHTML=`<div class="card" style="border-color:var(--gold)">
     <b>⏸ Có bài đang làm dở</b>
@@ -1349,6 +1356,7 @@ function startSession(mode){
   if(mode==="exam"){ startExam(); return; }
   if(mode==="zhvi"){ startZhvi(); return; }
   if(mode==="vi2zh"){ startVi2zh(); return; }
+  if(mode==="sentpy"){ startSentpy(); return; }
   const pool=buildPool(15);
   if(pool.length===0){
     session=null; clearPractice();
@@ -1719,7 +1727,7 @@ function finishSession(){
  * ==================================================================== */
 const HIST_KEY = LS_KEY + "_zhvi_hist";      // giữ tên key cũ để không mất lịch sử đã có
 const HIST_TTL = 7*DAY;                      // câu cũ hơn 7 ngày ⇒ tự xóa
-const KIND_NAME = { zhvi:"Trung → Việt", vi2zh:"Việt → Trung" };
+const KIND_NAME = { zhvi:"Trung → Việt", vi2zh:"Việt → Trung", sentpy:"Nghe → gõ câu" };
 function loadHist(){
   try{
     const a=JSON.parse(localStorage.getItem(HIST_KEY))||[];
@@ -1791,7 +1799,7 @@ function renderHist(){
   };
 }
 /* ---- gọi AI lấy 3 câu cho bài dịch (dùng chung 2 chiều) ---- */
-async function fetchTransItems(area, level){
+async function fetchTransItems(area, level, task){
   if(!PROXY_URL){
     area.innerHTML=`<div class="card"><p class="small" style="color:var(--bad);font-weight:600">Tính năng này cần AI.</p>
       <p class="small muted">Hãy điền <code>PROXY_URL</code> trong index.html (proxy Vercel <code>/api/chinese</code>) để bật.</p></div>`;
@@ -1802,7 +1810,7 @@ async function fetchTransItems(area, level){
     <p style="margin:8px 0">Đang tạo câu ${esc(level)} để luyện dịch…</p>
     <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
   const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({task:"zh2vi", n:3, level, provider:state.settings.provider})});
+    body:JSON.stringify({task:task||"zh2vi", n:3, level, provider:state.settings.provider})});
   const j=await r.json();
   if(j.error) throw new Error(j.error);
   const items=(j.sentences||[]).filter(s=>s&&s.zh&&s.vi).slice(0,3);
@@ -1903,6 +1911,115 @@ function renderVi2zh(){
   });
   document.getElementById("v2zMore").onclick=()=>startVi2zh();
   savePractice(); updateScopeInfo();
+}
+
+/* ====================================================================
+ * 🎧 NGHE CÂU → GÕ PINYIN (AI sinh 3 câu, proxy task "listen")
+ *   Nghe cả câu → gõ pinyin (gõ số 1-4 tự thành dấu). Chữ Hán HIỆN DẦN theo
+ *   các âm tiết gõ đúng (so prefix với `tokens` — mỗi token = 1 chữ Hán + pinyin
+ *   của đúng chữ đó). Bấm "Kiểm tra" → đúng/sai + chữ Hán + dịch + từ vựng + ngữ pháp.
+ *   Câu vào lịch sử dùng chung (nhãn "Nghe → gõ câu"). KHÔNG tính vào SRS.
+ * ==================================================================== */
+/* pinyin cả câu: giữ dấu thanh, bỏ khoảng trắng/dấu câu/hoa-thường (để so khớp CHẶT) */
+function normSentStrict(s){
+  return (s||"").toLowerCase().normalize("NFC").replace(/u:/g,"ü").replace(/v/g,"ü")
+    .replace(/[^\p{L}]/gu,"");
+}
+/* đáp án pinyin của câu — ưu tiên ghép từ tokens (sạch dấu câu), không có thì lấy s.pinyin */
+function sentPinyin(s){
+  return (s.tokens && s.tokens.length) ? s.tokens.map(t=>t.p).join(" ") : (s.pinyin||"");
+}
+/* số chữ Hán ĐẦU CÂU mà người dùng đã gõ đúng pinyin (so prefix, bỏ dấu thanh) */
+function hanTyped(user, tokens){
+  const u=normPinyin(user); if(!u) return 0;
+  let cum="", k=0;
+  for(let i=0;i<tokens.length;i++){
+    cum+=normPinyin(tokens[i].p);
+    if(u.startsWith(cum)) k=i+1; else break;
+  }
+  return k;
+}
+async function startSentpy(){
+  session=null; transState=null; clearPractice();
+  const area=document.getElementById("practiceArea");
+  const level=aiLevel();
+  try{
+    const items=await fetchTransItems(area, level, "listen");
+    if(!items) return;
+    transState={mode:"sentpy", items, i:0, level, value:"", checked:false};
+    renderSentpy();
+  }catch(err){ transError(err, "startSentpy"); }
+}
+function renderSentpy(){
+  const t=transState; if(!t) return;
+  const s=t.items[t.i];
+  if(!s){ startSentpy(); return; }                      // hết 3 câu ⇒ gọi AI sinh tiếp
+  pushHist(s, t.level, "sentpy");
+  const toks=s.tokens||[];
+  const area=document.getElementById("practiceArea");
+  const w=s.zh.replace(/'/g,"\\'");
+  area.innerHTML=`${histBarHtml(`Câu ${t.i+1}/${t.items.length} · ${t.level} · nghe rồi gõ pinyin cả câu`)}
+    <div class="card" style="margin-top:10px;text-align:center">
+      <button class="speak" id="spPlay" style="width:72px;height:72px;font-size:32px">🔊</button>
+      <div class="row" style="justify-content:center;gap:8px;margin-top:6px">
+        <button class="btn btn-ghost btn-sm" id="spSlow">🐢 Nghe chậm</button>
+      </div>
+      <p class="small muted" style="margin:10px 0 0">Gõ pinyin cả câu (gõ <b>số 1–4 sau vần</b> để có dấu:
+        <b>wo3 xiang3 xue2</b> → <b>wǒ xiǎng xué</b>). Gõ đúng tới đâu, chữ Hán hiện tới đó.</p>
+      <input class="text" id="spInput" autocomplete="off" autocapitalize="off" spellcheck="false"
+        placeholder="ví dụ: wo3 xiang3 xue2 han4yu3" style="text-align:center;font-size:18px;max-width:420px;margin:8px auto 0" />
+      ${toks.length?`<div id="spHan" class="word-han" style="font-size:28px;letter-spacing:4px;margin-top:12px;min-height:38px"></div>`:""}
+      <div id="spFeedback" style="margin-top:8px"></div>
+      <button class="btn btn-primary" id="spCheck" style="margin-top:10px">Kiểm tra</button>
+    </div>`;
+  bindHistBar();
+  const inp=document.getElementById("spInput");
+  const fb=document.getElementById("spFeedback");
+  const btn=document.getElementById("spCheck");
+  const han=document.getElementById("spHan");
+  document.getElementById("spPlay").onclick=()=>speak(s.zh);
+  document.getElementById("spSlow").onclick=()=>speak(s.zh, 0.6);
+  if(!t.checked) setTimeout(()=>{ speak(s.zh); inp.focus(); }, 250);
+  function paintHan(){                                  // chữ Hán hiện dần theo âm tiết gõ đúng
+    if(!han) return;
+    const k=hanTyped(inp.value, toks);
+    han.innerHTML=toks.map((tk,i)=> i<k
+      ? `<span>${esc(tk.zh)}</span>`
+      : `<span style="color:var(--line)">·</span>`).join("");
+  }
+  inp.addEventListener("input",()=>{
+    const conv=pyNumToTone(inp.value);
+    if(conv!==inp.value) inp.value=conv;
+    transState.value=inp.value;
+    paintHan();
+  });
+  function check(){
+    if(transState.checked) return;
+    transState.checked=true; transState.value=inp.value;
+    const ansP=sentPinyin(s);
+    const ok   = normSentStrict(inp.value)===normSentStrict(ansP);
+    const near = !ok && normPinyin(inp.value)===normPinyin(ansP);
+    inp.disabled=true; btn.style.display="none";
+    if(han) han.innerHTML=toks.map(tk=>esc(tk.zh)).join("");   // chấm xong ⇒ hiện đủ chữ Hán
+    const verdict = ok ? "✓ Chính xác!" : (near ? "✗ Đúng âm nhưng sai dấu thanh" : "✗ Chưa đúng");
+    fb.innerHTML=`<div style="font-weight:700;color:${ok?'var(--green)':'var(--bad)'}">${verdict}</div>
+      <div style="text-align:left">
+        <div class="row" style="gap:8px;align-items:flex-start;margin-top:10px">
+          <div class="word-han" style="font-size:24px;line-height:1.5;flex:1;user-select:text;-webkit-user-select:text">${esc(s.zh)}</div>
+          ${speakBtn(w)}
+        </div>
+        ${ansHtml(s, false)}
+      </div>`;
+    const nx=el(`<button class="btn btn-primary" style="margin-top:12px">Câu tiếp theo →</button>`);
+    nx.onclick=()=>{ transState.i++; transState.value=""; transState.checked=false; renderSentpy(); };
+    fb.appendChild(nx);
+    savePractice(); updateScopeInfo();
+  }
+  btn.onclick=check;
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter") check(); });
+  if(t.value){ inp.value=t.value; paintHan(); }         // khôi phục phần đã gõ
+  if(t.checked){ transState.checked=false; check(); }   // khôi phục màn đã chấm (không chấm lại)
+  savePractice();
 }
 
 /* ====================================================================

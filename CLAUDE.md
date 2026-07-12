@@ -20,8 +20,8 @@ dần), sau đó học nghiêm túc. Luồng dùng:
    Nút chuyển THỦ CÔNG: Nhóm 1→2, 2→3, lùi lại, “✕ Bỏ ôn” (trả về là từ mới ở Hôm nay).
    Ngoài ra có **thăng nhóm TỰ ĐỘNG bằng điểm** (chỉ từ bài “Nghe → gõ pinyin”, xem §4).
    **Không có SRS lịch ôn tự động.**
-5. **Luyện tập**: **4 kiểu bài** — ⌨ Nghe → gõ pinyin (mặc định), 🎯 Trắc nghiệm 5 câu,
-   📝 Dịch Trung → Việt, 📝 Dịch Việt → Trung. (Các kiểu Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, Tập viết **đã gỡ
+5. **Luyện tập**: **5 kiểu bài** — ⌨ Nghe → gõ pinyin (từ, mặc định), 🎯 Trắc nghiệm 5 câu,
+   📝 Dịch Trung → Việt, 📝 Dịch Việt → Trung, 🎧 Nghe câu → gõ pinyin. (Các kiểu Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, Tập viết **đã gỡ
    bỏ** theo yêu cầu — người dùng không dùng. Nút ✍ “xem cách viết” ở tab Hôm nay/Từ vựng
    vẫn giữ, Hanzi Writer vẫn cần.) Mỗi phiên **15 câu**, bốc theo
    **tỉ lệ 70% Nhóm 1 · 20% Nhóm 2 · 10% Nhóm 3** (`buildPool(15)` → 11/3/1). Nhóm
@@ -101,6 +101,14 @@ POST ?code=MA { "data":{} }← { "ok": true }
 → { "task":"zh2vi", "level":"HSK1"|"HSK2"|"HSK3", "n":3, "provider":"gemini"|"groq" }
 ← { "sentences":[ { "zh","pinyin","vi","vocab":[{ "w","p","vi" }], "grammar":"giải thích ngữ pháp" } ] }
 // task "sentences" là TÊN CŨ, vẫn nhận (cùng handler, cùng dữ liệu trả về).
+```
+**Nghe câu → gõ pinyin** (kiểu luyện tập 🎧):
+```
+→ { "task":"listen", "level":"HSK1"|"HSK2"|"HSK3", "n":3, "provider":"gemini"|"groq" }
+← { "sentences":[ { "zh","pinyin","vi","vocab":[...], "grammar",
+      "tokens":[ { "zh":"我","p":"wǒ" } ] } ] }   // tokens: MỖI chữ Hán 1 phần tử, đúng thứ tự
+// Proxy LOẠI "tokens" nếu ghép lại không khớp hệt chữ Hán trong "zh" (frontend khi đó
+// chỉ chấm pinyin, không hiện chữ Hán dần).
 ```
 **Bài tập ngữ pháp** (nút “🎯 Tạo bài tập” ở tab Ngữ pháp — sinh 5 câu cho MỘT điểm):
 ```
@@ -201,10 +209,10 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
   qua Gemini hoạt động thật; GROQ chưa xác nhận có key hay chưa).
   Deploy lại: `cd proxy && vercel deploy --prod --yes --scope thinhlt1069s-projects`.
 - ✅ **1191 từ** (HSK1 151 + HSK2 147 + HSK3 295 + HSK4 598) + 33 câu;
-  **4 kiểu luyện tập**. HSK3/HSK4 dịch từ danh sách chuẩn HSK 2012
+  **5 kiểu luyện tập**. HSK3/HSK4 dịch từ danh sách chuẩn HSK 2012
   (nguồn `glxxyz/hskhsk.com`), pinyin lấy gốc, nghĩa Việt + pos + cat do bổ sung.
   pos thêm: `liên` (liên từ). cat thêm: `học tập`, `trang phục`, `thiên nhiên`.
-- ✅ **Kiểu luyện tập (4)** (chip `#practiceModes`, `pMode` mặc định `typepy`;
+- ✅ **Kiểu luyện tập (5)** (chip `#practiceModes`, `pMode` mặc định `typepy`;
   `MODE_NAMES` là danh sách kiểu HỢP LỆ — `loadPractice()` tự bỏ bài dở của kiểu đã gỡ):
   **⌨ Nghe → gõ pinyin** (`typeCard`/`bindTypeCard`, so khớp `normPinyin`/`normPinyinStrict`;
   đây là kiểu DUY NHẤT cộng/trừ `pts` để tự thăng nhóm — xem §4),
@@ -212,7 +220,7 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
   ngẫu nhiên 4 dạng hỏi (Hán→nghĩa, nghĩa→Hán, pinyin→Hán, Hán→pinyin); chọn xong hiện
   giải thích + nút "Câu tiếp →". Chạy **offline** từ `HSK_WORDS` (có bản AI `startExam`,
   fallback `startExamOffline`),
-  **📝 Dịch Trung → Việt** + **📝 Dịch Việt → Trung** (xem gạch dưới).
+  **📝 Dịch Trung → Việt** + **📝 Dịch Việt → Trung** + **🎧 Nghe câu → gõ pinyin** (xem gạch dưới).
   ĐÃ GỠ (2026-07): Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, ✍ Tập viết — cùng các hàm
   `flashCard`/`quizCard`/`writeCard`/`bindWriteCard`/`hanChars`/`bindCard` và CSS `.grade`.
   **Hanzi Writer vẫn giữ** vì nút ✍ "xem cách viết" ở tab Hôm nay/Từ vựng còn dùng.
@@ -234,6 +242,16 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
     Xem lại bằng nút “🗂 Câu đã làm (N)” trong cả hai bài (`histBarHtml`/`bindHistBar`/`renderHist`,
     `<details>` bung ra là đủ đáp án, có nhãn Trung→Việt / Việt→Trung) + nút “🗑 Xóa hết”.
     **Chỉ ở máy này**, KHÔNG đồng bộ lên vocab-worker (cố ý, cho nhẹ).
+- ✅ **🎧 Nghe câu → gõ pinyin** (mode `sentpy`, `startSentpy`/`renderSentpy`): AI sinh **3 câu**
+  qua proxy **`task:"listen"`** (giống `zh2vi` nhưng thêm **`tokens`** = mảng TỪNG chữ Hán kèm
+  pinyin của đúng chữ đó — proxy chỉ giữ `tokens` khi ghép lại khớp hệt chữ Hán của `zh`, lệch thì
+  bỏ và frontend tự xoay xở). Hiện **TỪNG CÂU**: nút 🔊 phát cả câu (`speak(text, rate)` nay nhận
+  tốc độ; có nút 🐢 Nghe chậm = 0.6) → gõ pinyin cả câu (gõ số 1-4 tự thành dấu, dùng lại
+  `pyNumToTone`) → **chữ Hán HIỆN DẦN** theo số âm tiết gõ đúng (`hanTyped()` so **prefix** chuỗi
+  pinyin đã bỏ dấu với `tokens` cộng dồn ⇒ gõ sai chỗ nào thì chữ dừng ở đó) → “Kiểm tra”: chấm
+  CHẶT dấu thanh (`normSentStrict`, bỏ khoảng trắng/dấu câu) và báo riêng “đúng âm nhưng sai dấu”
+  (`normPinyin`), rồi hiện chữ Hán + dịch + từ vựng + ngữ pháp → “Câu tiếp theo →”.
+  Vào lịch sử chung với nhãn “Nghe → gõ câu” (`kind:"sentpy"`). KHÔNG tính vào SRS.
 - ✅ **Nút ✍ "xem cách viết" cạnh mỗi từ** ở tab Hôm nay & Từ vựng (`writeBtn` +
   `showStrokeGuide`): bấm để hiện/ẩn ô chạy thứ tự nét ngay tại chỗ (đa ký tự chạy
   lần lượt), có nút "▶ Xem lại". Dùng chung thư viện Hanzi Writer CDN.

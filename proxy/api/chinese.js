@@ -105,6 +105,26 @@ function promptSentences(b) {
   return `Trình độ: ${level}. Soạn ĐÚNG ${n} câu khác nhau, đa dạng chủ đề đời thường.`;
 }
 
+/* ---------- task: listen (nghe cả câu rồi gõ pinyin) ----------
+ * Giống "sentences" nhưng thêm "tokens": tách TỪNG chữ Hán kèm pinyin của chữ đó,
+ * để frontend hiện dần chữ Hán theo các âm tiết người học gõ đúng. */
+const SYS_LISTEN = `Bạn là giáo viên tiếng Trung cho người Việt MỚI HỌC.
+Hãy tạo các câu tiếng Trung giản thể NGẮN, ĐƠN GIẢN, ĐÚNG trình độ được yêu cầu, dễ NGHE
+(không dùng từ hiếm), mỗi câu một tình huống đời thường khác nhau, KHÔNG trùng lặp.
+Với mỗi câu, cung cấp:
+- "zh": câu chữ Hán giản thể (có dấu câu).
+- "pinyin": pinyin có dấu thanh cho cả câu.
+- "vi": dịch nghĩa tiếng Việt tự nhiên.
+- "tokens": mảng TỪNG CHỮ HÁN trong câu theo đúng thứ tự, BỎ dấu câu; mỗi phần tử là
+  {"zh":"MỘT chữ Hán duy nhất","p":"pinyin có dấu của ĐÚNG chữ đó trong câu này"}.
+  Đọc đúng âm đa âm theo ngữ cảnh (行, 长, 得, 了…). Số phần tử = số chữ Hán trong "zh".
+- "vocab": các từ chính trong câu, mỗi từ {"w":"chữ Hán","p":"pinyin có dấu","vi":"nghĩa tiếng Việt"}.
+- "grammar": giải thích ngữ pháp câu bằng tiếng Việt (2-4 câu ngắn).
+Trả về DUY NHẤT JSON hợp lệ dạng:
+{"sentences":[{"zh":"...","pinyin":"...","vi":"...","tokens":[{"zh":"我","p":"wǒ"}],
+  "vocab":[{"w":"...","p":"...","vi":"..."}],"grammar":"..."}]}
+Không thêm chữ nào ngoài JSON.`;
+
 /* ---------- task: grammar (bài tập cho 1 điểm ngữ pháp) ---------- */
 const SYS_GRAMMAR = `Bạn là giáo viên tiếng Trung cho người Việt học theo giáo trình HSK.
 Cho MỘT điểm ngữ pháp, hãy soạn bài tập luyện ĐÚNG điểm ngữ pháp đó, dùng từ vựng và
@@ -261,21 +281,33 @@ export default async function handler(req, res) {
       return res.status(200).json({ exercises });
     }
 
-    // "zh2vi" = kiểu luyện tập "Dịch Trung → Việt" (cùng dạng dữ liệu, có thêm "grammar")
-    if (b.task === "sentences" || b.task === "zh2vi") {
-      const raw = await call(SYS_SENTENCES, promptSentences(b), 3000);
+    // "zh2vi" = 2 bài dịch (Trung→Việt / Việt→Trung); "listen" = nghe cả câu rồi gõ pinyin
+    if (b.task === "sentences" || b.task === "zh2vi" || b.task === "listen") {
+      const hear = b.task === "listen";
+      const raw = await call(hear ? SYS_LISTEN : SYS_SENTENCES, promptSentences(b), hear ? 4000 : 3000);
       const out = parseJson(raw);
       const sentences = (out.sentences || [])
         .filter((s) => s && s.zh)
-        .map((s) => ({
-          zh: String(s.zh),
-          pinyin: String(s.pinyin || ""),
-          vi: String(s.vi || ""),
-          vocab: Array.isArray(s.vocab)
-            ? s.vocab.filter((v) => v && v.w).map((v) => ({ w: String(v.w), p: String(v.p || ""), vi: String(v.vi || "") }))
-            : [],
-          grammar: String(s.grammar || ""),
-        }));
+        .map((s) => {
+          const o = {
+            zh: String(s.zh),
+            pinyin: String(s.pinyin || ""),
+            vi: String(s.vi || ""),
+            vocab: Array.isArray(s.vocab)
+              ? s.vocab.filter((v) => v && v.w).map((v) => ({ w: String(v.w), p: String(v.p || ""), vi: String(v.vi || "") }))
+              : [],
+            grammar: String(s.grammar || ""),
+          };
+          if (hear) {
+            const toks = Array.isArray(s.tokens)
+              ? s.tokens.filter((t) => t && t.zh && t.p).map((t) => ({ zh: String(t.zh), p: String(t.p) }))
+              : [];
+            // chỉ giữ tokens khi khớp ĐÚNG các chữ Hán của câu (nếu lệch → frontend tự xoay xở)
+            const hanOf = (x) => (String(x).match(/[㐀-鿿]/g) || []).join("");
+            if (toks.length && hanOf(toks.map((t) => t.zh).join("")) === hanOf(o.zh)) o.tokens = toks;
+          }
+          return o;
+        });
       return res.status(200).json({ sentences });
     }
 
