@@ -206,7 +206,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
   <!-- ========================= TỪ ĐANG ÔN ========================= -->
   <section class="view" id="view-review">
     <h2 class="section">复习 · Từ đang ôn</h2>
-    <p class="lead">Từ chia 3 nhóm theo độ thành thạo. Tự bấm chuyển: đã học đủ lâu → Nhóm 2, đã nắm chắc → Nhóm 3. Luyện tập ưu tiên Nhóm 1 (Nghe → gõ pinyin 80/15/5 · Trắc nghiệm 70/20/10).</p>
+    <p class="lead">Từ chia 3 nhóm theo độ thành thạo. Tự bấm chuyển nhóm, hoặc để bài “Nghe → gõ pinyin” tự thăng nhóm khi đủ điểm. Tỉ lệ bốc từ &amp; quy tắc điểm chỉnh ở tab <b>Cài đặt</b>.</p>
     <div class="tiles" id="reviewTiles"></div>
     <div id="reviewBody"></div>
   </section>
@@ -335,6 +335,47 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
     </div>
 
     <div class="card">
+      <b>Luyện tập — tỉ lệ bốc từ theo nhóm</b>
+      <p class="small muted">Mỗi phiên 15 câu bốc từ trong “Từ đang ôn” theo tỉ lệ này. Phần lẻ được
+        bốc ngẫu nhiên theo đúng phần thập phân (vd 5% của 15 câu = 0,75 ⇒ Nhóm 3 xuất hiện 1 câu với
+        xác suất 75%). Tổng nên là 100%.</p>
+      <div id="ratioRows"></div>
+      <p class="small" id="ratioNote" style="margin:8px 0 0"></p>
+      <button class="btn btn-ghost btn-sm" id="ratioReset" style="margin-top:8px">↺ Mặc định (80/15/5 · 70/20/10)</button>
+    </div>
+
+    <div class="card">
+      <b>Quy tắc điểm &amp; tự thăng nhóm</b>
+      <p class="small muted">Chỉ áp dụng cho bài <b>⌨ Nghe → gõ pinyin</b>: gõ đúng ngay lần đầu được cộng
+        điểm, gõ sai bị trừ (điểm không xuống dưới 0). Đủ điểm thì từ tự lên nhóm trên (chỉ lên, không hạ).</p>
+      <div class="row wrap" style="gap:10px;margin-top:6px">
+        <div style="flex:1;min-width:130px">
+          <label class="field">Đúng lần đầu: +</label>
+          <input class="text" id="scPlus" type="number" min="0.1" max="10" step="0.1" />
+        </div>
+        <div style="flex:1;min-width:130px">
+          <label class="field">Gõ sai: −</label>
+          <input class="text" id="scMinus" type="number" min="0" max="10" step="0.1" />
+        </div>
+      </div>
+      <div class="row wrap" style="gap:10px;margin-top:6px">
+        <div style="flex:1;min-width:130px">
+          <label class="field">Đủ điểm → Nhóm 2</label>
+          <input class="text" id="scG2" type="number" min="0.5" max="200" step="0.5" />
+        </div>
+        <div style="flex:1;min-width:130px">
+          <label class="field">Đủ điểm → Nhóm 3</label>
+          <input class="text" id="scG3" type="number" min="0.5" max="500" step="0.5" />
+        </div>
+      </div>
+      <p class="small" id="scNote" style="margin:10px 0 0"></p>
+      <div class="row wrap" style="gap:8px;margin-top:8px">
+        <button class="btn btn-ghost btn-sm" id="scApply">↑ Áp dụng ngay cho từ đã có điểm</button>
+        <button class="btn btn-ghost btn-sm" id="scReset">↺ Mặc định (+1 / −0,5 · 5 · 10)</button>
+      </div>
+    </div>
+
+    <div class="card">
       <b>Dữ liệu</b>
       <div class="row wrap" style="margin-top:8px">
         <button class="btn btn-ghost btn-sm" id="exportBtn">Xuất JSON</button>
@@ -376,7 +417,9 @@ function defaultState(){
     progress: {},            // { [word]: {group:1|2|3, addedAt, last, reps, correct} }
     grammarDone: {},         // { [grammarId]: timestamp } — điểm ngữ pháp đã bấm "đã học xong"
     stats: { streak:0, lastDay:"", reviewsToday:0, dayKey:"", history:{} },
-    settings: { dailyNew:15, provider:"gemini", rate:0.9, voiceURI:"", aiLevel:"HSK1" },
+    settings: { dailyNew:15, provider:"gemini", rate:0.9, voiceURI:"", aiLevel:"HSK1",
+      ratios: { typepy:[80,15,5], exam:[70,20,10] },      // % bốc từ Nhóm 1/2/3 theo kiểu bài
+      score:  { plus:1, minus:0.5, g2:5, g3:10 } },       // quy tắc điểm bài "Nghe → gõ pinyin"
     updatedAt: 0,
   };
 }
@@ -438,17 +481,25 @@ function removeFromReview(w){ delete state.progress[w]; save(); markDirty(); }
    (phần gõ lại sau khi sai KHÔNG tính). Điểm tối thiểu 0, không âm.
    Đủ 5 điểm ⇒ Nhóm 2; đủ 10 điểm ⇒ Nhóm 3. Chỉ ĐẨY LÊN — mất điểm không bị hạ
    nhóm, và không kéo xuống nhóm bạn đã tự tay chuyển. */
-const PTS_G2=5, PTS_G3=10;
+const DEF_SCORE = { plus:1, minus:0.5, g2:5, g3:10 };
+function scoreCfg(){                     // quy tắc điểm — NGƯỜI DÙNG CHỈNH ĐƯỢC ở tab Cài đặt
+  const c=state.settings.score||{};
+  const num=(v,d,min)=>{ const x=+v; return (isFinite(x) && x>=min) ? x : d; };
+  const g2=num(c.g2, DEF_SCORE.g2, 0.5);
+  return { plus:num(c.plus, DEF_SCORE.plus, 0.1), minus:num(c.minus, DEF_SCORE.minus, 0),
+           g2, g3:Math.max(num(c.g3, DEF_SCORE.g3, 0.5), g2) };   // ngưỡng Nhóm 3 luôn ≥ Nhóm 2
+}
 function ptsOf(w){ const c=state.progress[w]; return (c && c.pts) || 0; }
-function ptsGoal(gr){ return gr>=3 ? 0 : (gr>=2 ? PTS_G3 : PTS_G2); }   // 0 = đã ở đích
-function fmtPts(p){ return (Math.round(p*2)/2).toString().replace(".",","); }
+function ptsGoal(gr){ const s=scoreCfg(); return gr>=3 ? 0 : (gr>=2 ? s.g3 : s.g2); }   // 0 = đã ở đích
+function fmtPts(p){ return (Math.round(p*100)/100).toString().replace(".",","); }
 /* chấm 1 lượt gõ pinyin → { pts, delta, promoted } (promoted = nhóm vừa lên, 0 nếu không) */
 function scorePinyin(w, ok){
   const c=state.progress[w];
   if(!c) return null;                    // từ không nằm trong lịch ôn ⇒ không chấm điểm
-  const delta = ok ? 1 : -0.5;
-  c.pts = Math.max(0, Math.round(((c.pts||0)+delta)*2)/2);
-  const target = c.pts>=PTS_G3 ? 3 : (c.pts>=PTS_G2 ? 2 : 1);
+  const sc=scoreCfg();
+  const delta = ok ? sc.plus : -sc.minus;
+  c.pts = Math.max(0, Math.round(((c.pts||0)+delta)*100)/100);
+  const target = c.pts>=sc.g3 ? 3 : (c.pts>=sc.g2 ? 2 : 1);
   let promoted = 0;
   if(target > (c.group||1)){ c.group=target; promoted=target; }
   c.last=Date.now();
@@ -488,10 +539,17 @@ function reviewGroups(){
 /* các từ mới kế tiếp (chưa vào lịch ôn), theo thứ tự HSK1→… */
 function newCandidates(){ return WORDS.filter(x=> !state.progress[x.w]); }
 
-/* Tỉ lệ bốc từ theo nhóm cho từng kiểu bài (Nhóm 1/2/3). Kiểu không khai báo ⇒ mặc định 70/20/10. */
-const POOL_RATIO = { typepy:[0.80, 0.15, 0.05] };     // ⌨ Nghe → gõ pinyin: 80/15/5
-const POOL_RATIO_DEFAULT = [0.70, 0.20, 0.10];        // 🎯 Trắc nghiệm 5 câu (và mặc định)
-function ratioText(r){ return r.map(x=>Math.round(x*100)+"%").join(" · "); }
+/* Tỉ lệ bốc từ theo nhóm (Nhóm 1/2/3) — NGƯỜI DÙNG CHỈNH ĐƯỢC ở tab Cài đặt
+   (`state.settings.ratios[mode]`, đơn vị %). Kiểu bài không khai báo ⇒ dùng của "exam". */
+const DEF_RATIO = { typepy:[80,15,5], exam:[70,20,10] };
+function ratioPct(mode){
+  const r=(state.settings.ratios||{})[mode];
+  const ok=Array.isArray(r) && r.length===3 && r.every(x=>typeof x==="number" && x>=0) && (r[0]+r[1]+r[2])>0;
+  return ok ? r : (DEF_RATIO[mode] || DEF_RATIO.exam);
+}
+function poolRatio(mode){ const p=ratioPct(mode), t=p[0]+p[1]+p[2]; return p.map(x=>x/t); }
+function ratioText(mode){ const p=ratioPct(mode), t=p[0]+p[1]+p[2];
+  return p.map(x=>Math.round(x/t*100)+"%").join(" · "); }
 
 /* tạo bộ từ luyện tập theo tỉ lệ (mặc định 70/20/10).
    Số câu không chia chẵn ⇒ phần lẻ bốc NGẪU NHIÊN theo đúng phần thập phân
@@ -501,7 +559,7 @@ function ratioText(r){ return r.map(x=>Math.round(x*100)+"%").join(" · "); }
    nhóm ít từ ⇒ cho lặp lại để vẫn đủ số câu. */
 function buildPool(total, ratio){
   total = total||15;
-  const r = ratio || POOL_RATIO_DEFAULT;
+  const r = ratio || poolRatio("exam");
   const g=reviewGroups();
   const src=[g[1],g[2],g[3]];
   const avail=src.map(a=>a.length);
@@ -1245,7 +1303,7 @@ function renderScopeList(){
     return `<p class="small muted" style="margin:10px 0 6px"><b>Nhóm ${gr}</b> · ${g[gr].length} từ</p>
       <div style="display:grid;gap:6px">${rows}</div>`;
   };
-  box.innerHTML=`<p class="small muted" style="margin:0 0 4px">Mỗi phiên bốc 15 câu theo tỉ lệ ${ratioText(POOL_RATIO[pMode]||POOL_RATIO_DEFAULT)} (Nhóm 1 · 2 · 3):</p>
+  box.innerHTML=`<p class="small muted" style="margin:0 0 4px">Mỗi phiên bốc 15 câu theo tỉ lệ ${ratioText(pMode)} (Nhóm 1 · 2 · 3) — đổi ở tab Cài đặt:</p>
     ${section(1)}${section(2)}${section(3)}`;
 }
 function updateScopeInfo(){
@@ -1259,7 +1317,7 @@ function updateScopeInfo(){
     return;
   }
   const total=g[1].length+g[2].length+g[3].length;
-  const rt=ratioText(POOL_RATIO[pMode]||POOL_RATIO_DEFAULT);
+  const rt=ratioText(pMode);
   el.textContent = total
     ? `Đang ôn ${total} từ · Nhóm 1: ${g[1].length} · Nhóm 2: ${g[2].length} · Nhóm 3: ${g[3].length} · bốc theo ${rt}`
     : "Chưa có từ đang ôn — vào tab Hôm nay bấm “Ôn tập”.";
@@ -1376,7 +1434,7 @@ function startSession(mode){
   if(mode==="zhvi"){ startZhvi(); return; }
   if(mode==="vi2zh"){ startVi2zh(); return; }
   if(mode==="sentpy"){ startSentpy(); return; }
-  const pool=buildPool(15, POOL_RATIO[mode]);
+  const pool=buildPool(15, poolRatio(mode));
   if(pool.length===0){
     session=null; clearPractice();
     document.getElementById("practiceArea").innerHTML=emptyReviewHtml;
@@ -1490,7 +1548,7 @@ function bindTypeCard(x, restore){
         const tot = goal ? `tổng ${fmtPts(sc.pts)}/${goal} điểm để lên Nhóm ${groupOf(x.w)+1}`
                          : `tổng ${fmtPts(sc.pts)} điểm · đã ở Nhóm 3`;
         fb.appendChild(el(`<div class="small" style="margin-top:8px;color:${sc.delta>0?'var(--green)':'var(--bad)'}">
-          <b>${sc.delta>0?'+1':'−0,5'} điểm</b> <span class="muted">(${tot})</span></div>`));
+          <b>${(sc.delta>0?"+":"−")+fmtPts(Math.abs(sc.delta))} điểm</b> <span class="muted">(${tot})</span></div>`));
         if(sc.promoted) toast(`🎉 「${x.w}」 đã lên Nhóm ${sc.promoted}!`);
       }
     }
@@ -2077,7 +2135,7 @@ function renderProgress(){
   const perWeek=Math.ceil(totalHSK5/weeks);
   document.getElementById("planText").innerHTML=
     `Còn ~<b>${weeks} tuần</b> tới mốc 10/2027. Để tích lũy ~${totalHSK5} từ (HSK1→5), cần khoảng <b>${perWeek} từ/tuần</b> (≈ ${Math.ceil(perWeek/7)} từ/ngày). `+
-    `Tab “Hôm nay” hiển thị ${state.settings.dailyNew} từ mới một lúc. Bấm “Ôn tập” để đưa dần vào 3 nhóm và luyện tập theo tỉ lệ 70/20/10.`;
+    `Tab “Hôm nay” hiển thị ${state.settings.dailyNew} từ mới một lúc. Bấm “Ôn tập” để đưa dần vào 3 nhóm; tỉ lệ bốc từ khi luyện tập chỉnh ở tab Cài đặt.`;
 }
 
 /* heatmap lịch sử ôn — 18 tuần gần nhất, kiểu lưới như GitHub */
@@ -2135,7 +2193,90 @@ function renderSettings(){
     ? zhVoices.map(v=>`<option value="${esc(v.voiceURI)}">${esc(v.name)} · ${v.lang}</option>`).join("")
     : `<option value="">(không tìm thấy giọng tiếng Trung trên máy này)</option>`;
   vs.value = state.settings.voiceURI || (zhVoice?zhVoice.voiceURI:"");
+
+  renderRatioRows();
+  renderScoreCfg();
 }
+
+/* ---- Cài đặt: tỉ lệ bốc từ theo nhóm (mỗi kiểu bài một hàng) ---- */
+const RATIO_MODES = [ ["typepy","⌨ Nghe → gõ pinyin"], ["exam","🎯 Trắc nghiệm 5 câu"] ];
+function renderRatioRows(){
+  const box=document.getElementById("ratioRows");
+  box.innerHTML=RATIO_MODES.map(([m,name])=>{
+    const p=ratioPct(m);
+    return `<div style="margin-top:10px">
+      <label class="field">${name}</label>
+      <div class="row wrap" style="gap:8px">
+        ${[0,1,2].map(i=>`<div style="flex:1;min-width:90px">
+          <span class="small muted">Nhóm ${i+1} (%)</span>
+          <input class="text" type="number" min="0" max="100" step="1" data-rt="${m}" data-i="${i}" value="${p[i]}" />
+        </div>`).join("")}
+      </div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll("input[data-rt]").forEach(inp=>{
+    inp.addEventListener("change",()=>{
+      const m=inp.dataset.rt, i=+inp.dataset.i;
+      const cur=ratioPct(m).slice();
+      cur[i]=Math.max(0, Math.min(100, +inp.value||0));
+      if(cur[0]+cur[1]+cur[2]===0){ toast("Tổng tỉ lệ phải lớn hơn 0"); renderRatioRows(); return; }
+      if(!state.settings.ratios) state.settings.ratios={};
+      state.settings.ratios[m]=cur;
+      save(); markDirty(); renderRatioRows(); updateScopeInfo();
+    });
+  });
+  const note=document.getElementById("ratioNote");
+  const bad=RATIO_MODES.filter(([m])=>{ const p=ratioPct(m); return p[0]+p[1]+p[2]!==100; });
+  note.innerHTML = bad.length
+    ? `⚠ Tổng chưa bằng 100% ở: <b>${bad.map(([,n])=>esc(n)).join(", ")}</b> — vẫn chạy được (app tự quy về tỉ lệ tương đối), nhưng để 100% cho dễ hiểu.`
+    : `✓ Tổng của mỗi kiểu bài đều bằng 100%.`;
+  note.style.color = bad.length ? "var(--bad)" : "var(--green)";
+}
+document.getElementById("ratioReset").onclick=()=>{
+  state.settings.ratios={ typepy:DEF_RATIO.typepy.slice(), exam:DEF_RATIO.exam.slice() };
+  save(); markDirty(); renderRatioRows(); updateScopeInfo(); toast("Đã khôi phục tỉ lệ mặc định");
+};
+
+/* ---- Cài đặt: quy tắc điểm & ngưỡng thăng nhóm ---- */
+function renderScoreCfg(){
+  const c=scoreCfg();
+  document.getElementById("scPlus").value=c.plus;
+  document.getElementById("scMinus").value=c.minus;
+  document.getElementById("scG2").value=c.g2;
+  document.getElementById("scG3").value=c.g3;
+  const n=document.getElementById("scNote");
+  const need2=Math.ceil(c.g2/c.plus), need3=Math.ceil(c.g3/c.plus);
+  n.innerHTML=`Gõ đúng liên tục thì cần <b>${need2}</b> lần để lên Nhóm 2 và <b>${need3}</b> lần để lên Nhóm 3.`
+    + (c.g3<=c.g2 ? ` <span style="color:var(--bad)">⚠ Ngưỡng Nhóm 3 phải lớn hơn Nhóm 2.</span>` : "");
+}
+function saveScoreCfg(){
+  const g=id=>+document.getElementById(id).value;
+  const plus=Math.max(0.1, Math.min(10, g("scPlus")||1));
+  const minus=Math.max(0, Math.min(10, g("scMinus")||0));
+  const g2=Math.max(0.5, Math.min(200, g("scG2")||5));
+  const g3=Math.max(g2, Math.min(500, g("scG3")||10));
+  state.settings.score={ plus, minus, g2, g3 };
+  save(); markDirty(); renderScoreCfg(); renderReview();
+}
+["scPlus","scMinus","scG2","scG3"].forEach(id=>
+  document.getElementById(id).addEventListener("change", saveScoreCfg));
+document.getElementById("scReset").onclick=()=>{
+  state.settings.score={ ...DEF_SCORE };
+  save(); markDirty(); renderScoreCfg(); renderReview(); toast("Đã khôi phục quy tắc điểm mặc định");
+};
+/* Áp ngưỡng MỚI cho các từ đã có điểm (chỉ thăng lên, không hạ) */
+document.getElementById("scApply").onclick=()=>{
+  const sc=scoreCfg();
+  let n=0;
+  for(const w in state.progress){
+    const c=state.progress[w];
+    const pts=c.pts||0;
+    const target = pts>=sc.g3 ? 3 : (pts>=sc.g2 ? 2 : 1);
+    if(target > (c.group||1)){ c.group=target; c.last=Date.now(); n++; }
+  }
+  if(n){ save(); markDirty(); renderReview(); }
+  toast(n ? `Đã thăng nhóm ${n} từ theo ngưỡng mới` : "Không có từ nào đủ điểm để thăng nhóm");
+};
 document.getElementById("codeInput").addEventListener("change",e=>{ state.code=e.target.value.trim(); save(); });
 document.getElementById("dailyNew").addEventListener("change",e=>{
   state.settings.dailyNew=Math.max(3,Math.min(40,+e.target.value||15)); save();

@@ -24,16 +24,20 @@ dần), sau đó học nghiêm túc. Luồng dùng:
    📝 Dịch Trung → Việt, 📝 Dịch Việt → Trung, 🎧 Nghe câu → gõ pinyin. (Các kiểu Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, Tập viết **đã gỡ
    bỏ** theo yêu cầu — người dùng không dùng. Nút ✍ “xem cách viết” ở tab Hôm nay/Từ vựng
    vẫn giữ, Hanzi Writer vẫn cần.) Mỗi phiên **15 câu**, bốc theo
-   **tỉ lệ theo từng kiểu bài** (`POOL_RATIO`, `buildPool(15, ratio)`):
-   ⌨ Nghe → gõ pinyin = **80/15/5** (⇒ 12 câu Nhóm 1; Nhóm 3 có 1 câu với xác suất 75%,
-   không thì phần đó về Nhóm 2), các kiểu khác = **70/20/10** (`POOL_RATIO_DEFAULT`).
-   Số câu lẻ được **làm tròn ngẫu nhiên theo phần thập phân** nên trung bình đúng tỉ lệ.
+   **tỉ lệ CHỈNH ĐƯỢC Ở TAB CÀI ĐẶT** (`state.settings.ratios[mode]`, đơn vị %; mặc định
+   `DEF_RATIO` = typepy 80/15/5, exam 70/20/10). Đọc qua `ratioPct(mode)`/`poolRatio(mode)`,
+   dùng ở `buildPool(15, poolRatio(mode))`. Số câu lẻ được **làm tròn ngẫu nhiên theo phần
+   thập phân** nên trung bình đúng tỉ lệ (vd 5% × 15 câu = 0,75 ⇒ Nhóm 3 có 1 câu với xác
+   suất 75%). Tổng ≠ 100% vẫn chạy (tự quy về tỉ lệ tương đối), UI chỉ cảnh báo.
    Nhóm rỗng thì dồn quota sang nhóm còn từ (ưu tiên 1→2→3); nhóm ít từ thì cho lặp lại.
    Kết quả CHỈ tính vào streak/heatmap (`logReview`), KHÔNG tự đổi nhóm.
 6. **Tiến độ**: streak, “từ đã nắm chắc” = Nhóm 3, % theo từng cấp, heatmap, lộ trình.
 7. **Cài đặt**: mã cá nhân (đồng bộ), số từ hiển thị ở Hôm nay, nhà cung cấp AI,
+   **tỉ lệ bốc từ Nhóm 1/2/3 cho từng kiểu bài** (`renderRatioRows`), **quy tắc điểm & ngưỡng
+   thăng nhóm** (`renderScoreCfg` + nút áp dụng ngay/khôi phục mặc định),
    xuất/nhập JSON, **“Làm lại từ đầu”** (xóa tiến độ cả localStorage lẫn máy chủ,
-   giữ nguyên danh sách từ vựng).
+   giữ nguyên danh sách từ vựng). Cả hai thiết lập nằm trong `state.settings` ⇒ **đồng bộ đa
+   thiết bị** theo mã cá nhân.
 
 Giao diện tiếng Việt, phong cách “báo chữ Hán” (font **Noto Serif SC** cho chữ Hán +
 **Be Vietnam Pro** cho tiếng Việt; tông đỏ/vàng kim).
@@ -138,21 +142,25 @@ Lỗi luôn trả `{ "error":"..." }` kèm header CORS.
 - **Mô hình 3 nhóm THỦ CÔNG** (thay cho SRS cũ). Có `progress[w]` ⇒ từ đang ôn;
   `group` = 1/2/3. Không có `group` ⇒ vẫn là "từ mới" ở tab Hôm nay.
 - **Điểm & thăng nhóm tự động** (`pts`, chỉ tính ở kiểu luyện tập **“⌨ Nghe → gõ pinyin”**):
-  gõ ĐÚNG ngay **lần bấm “Kiểm tra” đầu tiên** của câu ⇒ **+1**; sai ⇒ **−0,5**
+  gõ ĐÚNG ngay **lần bấm “Kiểm tra” đầu tiên** của câu ⇒ cộng điểm; sai ⇒ trừ điểm
   (ô “gõ lại cho đúng” sau khi sai KHÔNG tính điểm). Điểm **kẹp sàn 0** (không âm).
-  Đủ **5 điểm ⇒ Nhóm 2**, đủ **10 điểm ⇒ Nhóm 3** (điểm cộng dồn, không reset khi lên nhóm).
+  Đủ ngưỡng ⇒ lên Nhóm 2 / Nhóm 3 (điểm cộng dồn, không reset khi lên nhóm).
+  **Quy tắc điểm CHỈNH ĐƯỢC Ở TAB CÀI ĐẶT**: `state.settings.score = {plus, minus, g2, g3}`
+  (mặc định `DEF_SCORE` = +1 / −0,5 / 5 / 10), đọc qua `scoreCfg()` (tự kẹp `g3 ≥ g2`).
   Chỉ **ĐẨY LÊN**: mất điểm KHÔNG hạ nhóm, và không kéo xuống nhóm người dùng đã tự tay chuyển
   (`target > group` mới đổi). Hàm: `scorePinyin(w, ok)` → `{pts, delta, promoted}`,
-  `ptsOf/ptsGoal/fmtPts/ptsBadge`; hằng `PTS_G2=5`, `PTS_G3=10`. Gọi trong `bindTypeCard.check()`
+  `ptsOf/ptsGoal/fmtPts/ptsBadge`. Gọi trong `bindTypeCard.check()`
   ngay sau `logReview`, bỏ qua khi `skipScore` (lúc khôi phục câu đã chấm ⇒ không cộng lại).
+  Đổi ngưỡng KHÔNG tự áp cho từ cũ — có nút **“↑ Áp dụng ngay cho từ đã có điểm”** ở Cài đặt
+  (quét `progress`, chỉ thăng lên).
   UI: dòng “+1 điểm (tổng 4/5…)” trong ô kết quả, toast “🎉 lên Nhóm N”, badge `⌨ x/5 điểm`
   ở tab Từ đang ôn. Các kiểu luyện tập KHÁC không cộng/trừ điểm.
 - Hàm chính (index.html):
   - `addToReview(w)` — đưa vào Nhóm 1; `moveGroup(w,g)` — chuyển nhóm (clamp 1..3);
     `removeFromReview(w)` — bỏ khỏi lịch ôn (mất luôn `pts`).
   - `reviewGroups()` → `{1:[],2:[],3:[]}` (giữ thứ tự HSK); `groupOf(w)`; `newCandidates()`.
-  - `buildPool(total=15, ratio)` — bốc theo tỉ lệ (`POOL_RATIO[mode]`, mặc định 70/20/10;
-    typepy = 80/15/5), làm tròn ngẫu nhiên phần lẻ, dồn quota nhóm rỗng + cho lặp.
+  - `buildPool(total=15, ratio)` — bốc theo tỉ lệ (`poolRatio(mode)` đọc từ Cài đặt),
+    làm tròn ngẫu nhiên phần lẻ, dồn quota nhóm rỗng + cho lặp.
   - `logReview(w,ok)` — ghi 1 lượt luyện tập (đếm + streak/heatmap), **KHÔNG đổi nhóm**.
 - **Migration:** `migrateProgress(st)` — dữ liệu SRS cũ (không có `group`) ⇒ gán Nhóm 1
   (gọi trong `loadState`, sau `mergeStates` ở `syncPull`, và khi nhập JSON) để không
