@@ -134,9 +134,6 @@ input.text{
   min-height:240px; display:flex; flex-direction:column; align-items:center; justify-content:center;
   text-align:center; padding:24px; gap:10px; user-select:none;
 }
-.grade{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px}
-.grade button{padding:14px 6px; border-radius:12px; font-weight:700; border:none; color:#fff}
-.g-again{background:#9a9a9a} .g-hard{background:var(--gold); color:#3a2c08} .g-good{background:var(--green)}
 
 /* quiz options */
 .opt{
@@ -248,12 +245,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
     <h2 class="section">练习 · Luyện tập</h2>
     <p class="lead">Mỗi phiên 15 câu, lấy từ trong “Từ đang ôn” theo tỉ lệ 70% Nhóm 1 · 20% Nhóm 2 · 10% Nhóm 3.</p>
     <div class="chips" id="practiceModes">
-      <button class="chip active" data-m="flash">Flashcard</button>
-      <button class="chip" data-m="zh2vi">Chữ Hán → nghĩa</button>
-      <button class="chip" data-m="vi2zh">Nghĩa → chữ Hán</button>
-      <button class="chip" data-m="listen">Nghe &amp; chọn</button>
-      <button class="chip" data-m="typepy">⌨ Nghe → gõ pinyin</button>
-      <button class="chip" data-m="write">✍ Tập viết</button>
+      <button class="chip active" data-m="typepy">⌨ Nghe → gõ pinyin</button>
       <button class="chip" data-m="exam">🎯 Trắc nghiệm 5 câu</button>
       <button class="chip" data-m="translate">📝 Dịch câu</button>
     </div>
@@ -1181,7 +1173,7 @@ function grTransCard(it,i,saved,onChange){
 /* ====================================================================
  * LUYỆN TẬP
  * ==================================================================== */
-let pMode="flash";
+let pMode="typepy";
 document.getElementById("practiceModes").addEventListener("click",e=>{
   const b=e.target.closest("button[data-m]"); if(!b) return;
   pMode=b.dataset.m;
@@ -1240,17 +1232,13 @@ const emptyReviewHtml=`<div class="empty"><span class="em">空</span>Chưa có t
 
 /* ---- Lưu / khôi phục bài luyện tập đang làm dở (localStorage, chỉ trên máy này) ---- */
 const PRAC_KEY = LS_KEY + "_practice";
-const MODE_NAMES = { flash:"Flashcard", zh2vi:"Chữ Hán → nghĩa", vi2zh:"Nghĩa → chữ Hán",
-  listen:"Nghe & chọn", typepy:"Nghe → gõ pinyin", write:"Tập viết",
-  exam:"Trắc nghiệm 5 câu", translate:"Dịch câu" };
+const MODE_NAMES = { typepy:"Nghe → gõ pinyin", exam:"Trắc nghiệm 5 câu", translate:"Dịch câu" };
 function snapshotCard(){        // đọc trạng thái câu đang làm từ DOM
   const m=session.mode;
-  if(m==="flash"){ const gr=document.getElementById("gradeRow"); return {flipped: !!(gr && gr.style.display!=="none")}; }
   if(m==="typepy"){
     const inp=document.getElementById("pyInput"); if(!inp) return {};
     return { value: inp.value, checked: inp.disabled };
   }
-  if(m==="write") return {};   // Hanzi Writer không lưu được giữa nét → khôi phục lại từ đầu chữ đang viết
   const wrap=document.getElementById("optWrap"); if(!wrap) return {};
   if(session.ai) return { done: !!wrap.dataset.done,
     picked: (wrap.dataset.picked!==undefined && wrap.dataset.picked!=="") ? +wrap.dataset.picked : null };
@@ -1275,7 +1263,14 @@ function savePractice(){
     else localStorage.removeItem(PRAC_KEY);
   }catch(e){}
 }
-function loadPractice(){ try{ return JSON.parse(localStorage.getItem(PRAC_KEY)); }catch(e){ return null; } }
+function loadPractice(){
+  try{
+    const b=JSON.parse(localStorage.getItem(PRAC_KEY));
+    // bỏ bài dở của kiểu luyện tập đã gỡ (flashcard, Hán→nghĩa, nghĩa→Hán, nghe&chọn, tập viết)
+    if(b && !MODE_NAMES[b.mode]){ clearPractice(); return null; }
+    return b;
+  }catch(e){ return null; }
+}
 function clearPractice(){ try{ localStorage.removeItem(PRAC_KEY); }catch(e){} }
 function resumePractice(){
   const b=loadPractice();
@@ -1337,11 +1332,8 @@ function nextCard(restore){
   if(!session || session.i>=session.pool.length){ finishSession(); return; }
   const x=session.pool[session.i];
   const head=`<p class="status">${session.i+1}/${session.total} · đúng ${session.correct}</p>`;
-  if(session.mode==="flash"){ area.innerHTML=head+flashCard(x); bindCard(x, restore); }
-  else if(session.mode==="write"){ area.innerHTML=head+writeCard(x); bindWriteCard(x); }
-  else if(session.mode==="typepy"){ area.innerHTML=head+typeCard(x); bindTypeCard(x, restore); }
-  else if(session.mode==="exam"){ const q=makeExam(x); area.innerHTML=head+q.html; bindExamCard(x,q.opts); }
-  else { area.innerHTML=head+quizCard(x, session.mode, restore&&restore.opts); bindCard(x, restore); }
+  if(session.mode==="typepy"){ area.innerHTML=head+typeCard(x); bindTypeCard(x, restore); }
+  else { const q=makeExam(x); area.innerHTML=head+q.html; bindExamCard(x,q.opts); }   // exam (bản offline)
   savePractice();
 }
 /* ---- Nghe → gõ pinyin ---- */
@@ -1509,49 +1501,6 @@ function showTypeReview(idx, resume){
     else showTypeReview(idx+1, resume);
   };
 }
-function flashCard(x){
-  return `<div class="flash" id="flashCard">
-    <div class="word-han big" style="user-select:text;-webkit-user-select:text">${x.w}</div>
-    <div class="row">${speakBtn(x.w)} ${copyBtn(x.w)}</div>
-    <div id="flashBack" style="display:none">
-      <div class="pinyin" style="font-size:18px">${x.p}</div>
-      <div class="meaning">${esc(x.vi)} <span class="pos">${x.pos}</span></div>
-    </div>
-    <button class="btn btn-ghost" id="flipBtn" style="margin-top:8px">Lật thẻ</button>
-  </div>
-  <div class="grade" id="gradeRow" style="display:none">
-    <button class="g-again" data-g="0">Quên</button>
-    <button class="g-hard" data-g="1">Khó</button>
-    <button class="g-good" data-g="2">Nhớ</button>
-  </div>`;
-}
-function quizCard(x, mode, orderW){
-  // build options — khi khôi phục thì giữ nguyên thứ tự đáp án cũ (orderW)
-  let prompt, correctText, optText;
-  let opts=null;
-  if(orderW && orderW.length){
-    opts=orderW.map(w=>WORDS.find(o=>o.w===w)).filter(Boolean);
-    if(!opts.some(o=>o.w===x.w)) opts=null;   // dữ liệu đổi → dựng lại mới
-  }
-  if(!opts){
-    const distract = shuffle(WORDS.filter(o=>o.w!==x.w && o.pos===x.pos)).slice(0,3);
-    while(distract.length<3){ const r=WORDS[Math.random()*WORDS.length|0]; if(r.w!==x.w && !distract.includes(r)) distract.push(r); }
-    opts=shuffle([x,...distract]);
-  }
-  if(mode==="zh2vi"){
-    prompt=`<div class="word-han big">${x.w}</div>${speakBtn(x.w)}<p class="small muted">Chọn nghĩa đúng</p>`;
-    optText=o=>esc(o.vi);
-  }else if(mode==="vi2zh"){
-    prompt=`<div class="meaning" style="font-size:22px">${esc(x.vi)}</div><p class="small muted">Chọn chữ Hán đúng</p>`;
-    optText=o=>`<span class="han">${o.w}</span> <span class="small muted">${o.p}</span>`;
-  }else{ // listen
-    prompt=`<button class="speak" style="width:64px;height:64px;font-size:28px" onclick="speak('${x.w.replace(/'/g,"\\'")}')">🔊</button><p class="small muted">Nghe rồi chọn chữ đúng</p>`;
-    optText=o=>`<span class="han">${o.w}</span> <span class="small muted">${o.p}</span>`;
-  }
-  const optHtml=opts.map(o=>`<button class="opt" data-w="${o.w}">${optText(o)}</button>`).join("");
-  return `<div class="flash" style="min-height:auto; padding:18px">${prompt}</div>
-    <div id="optWrap" style="margin-top:12px">${optHtml}</div>`;
-}
 /* ---- 🎯 Trắc nghiệm 5 câu (có giải thích) — chạy offline ---- */
 function makeExam(x){
   const types=["zh2vi","vi2zh","py2zh","zh2py"];
@@ -1713,139 +1662,6 @@ function bindExamAICard(q, restore){
     setTimeout(()=>exp.scrollIntoView({block:"center",behavior:"smooth"}),40);
   });
   if(restore && restore.done && restore.picked!=null) mark(restore.picked);   // khôi phục: không cộng điểm lại
-}
-/* ---- Tập viết chữ Hán (Hanzi Writer) ---- */
-function hanChars(w){ return (w.match(/[㐀-鿿]/g)||[]); }
-function writeCard(x){
-  return `<div class="flash" style="min-height:auto; padding:16px">
-    <div class="row" style="justify-content:center;gap:8px">
-      <div class="meaning" style="font-size:20px">${esc(x.vi)}</div>
-      <div class="pinyin">${x.p} <span class="pos">${x.pos}</span></div>
-      ${speakBtn(x.w)}
-    </div>
-    <p class="small" id="writeProg" style="margin:6px 0 0;font-weight:600;color:var(--red)"></p>
-    <div id="hzTarget" style="width:248px;height:248px;margin:10px auto;border:2px dashed var(--line);border-radius:12px;background:var(--card)"></div>
-    <div class="row" id="hzBtns" style="justify-content:center;gap:8px;flex-wrap:wrap"></div>
-  </div>`;
-}
-function bindWriteCard(x){
-  const chars=hanChars(x.w);
-  const target=document.getElementById("hzTarget");
-  const prog=document.getElementById("writeProg");
-  const btns=document.getElementById("hzBtns");
-  if(typeof HanziWriter==="undefined"){
-    target.innerHTML=`<p class="small muted" style="padding:16px;text-align:center">Chưa tải được thư viện viết chữ.<br>Cần mạng lần đầu (sau đó dùng offline được).</p>`;
-    btns.innerHTML=`<button class="btn btn-ghost btn-sm" id="hzSkip">⤼ Bỏ qua từ</button>`;
-    document.getElementById("hzSkip").onclick=()=>{ logReview(x.w,false); advance(); };
-    return;
-  }
-  // đưa ô viết vào giữa màn hình để luôn nhìn thấy
-  setTimeout(()=>target.scrollIntoView({block:"center",behavior:"smooth"}), 60);
-
-  let ci=0, mistakes=0, writer=null, nstrokes="", phase="demo";
-  const SZ=248;
-  function label(step){
-    const pos = chars.length>1 ? `Chữ ${ci+1}/${chars.length} (${chars[ci]}) · ` : "";
-    const n = nstrokes ? ` · ${nstrokes} nét` : "";
-    prog.innerHTML = pos + step + n;
-  }
-  function setButtons(){
-    if(phase==="demo"){
-      btns.innerHTML=`<button class="btn btn-primary btn-sm" id="hzStart">✍ Tôi tự viết</button>
-        <button class="btn btn-ghost btn-sm" id="hzSkip">⤼ Bỏ qua</button>`;
-      document.getElementById("hzStart").onclick=()=>startQuiz();
-    }else{
-      btns.innerHTML=`<button class="btn btn-ghost btn-sm" id="hzReplay">▶ Xem lại mẫu</button>
-        <button class="btn btn-ghost btn-sm" id="hzReveal">👁 Hiện chữ</button>
-        <button class="btn btn-ghost btn-sm" id="hzSkip">⤼ Bỏ qua</button>`;
-      document.getElementById("hzReplay").onclick=()=>{ phase="demo"; setButtons(); demoLoop(); };
-      document.getElementById("hzReveal").onclick=()=>{ if(writer) writer.showCharacter(); };
-    }
-    document.getElementById("hzSkip").onclick=()=>{ logReview(x.w,false); advance(); };
-  }
-  function startChar(){
-    target.innerHTML=""; nstrokes=""; phase="demo";
-    writer=HanziWriter.create(target,chars[ci],{
-      width:SZ,height:SZ,padding:8,
-      showCharacter:false, showOutline:true, outlineColor:"#d9cdb4",
-      strokeColor:"#b32018", radicalColor:"#c79a3a", drawingColor:"#1a1816",
-      strokeAnimationSpeed:0.7, delayBetweenStrokes:450,
-      drawingWidth:20, showHintAfterMisses:3, highlightOnComplete:true
-    });
-    setButtons();
-    HanziWriter.loadCharacterData(chars[ci])
-      .then(d=>{ nstrokes = d&&d.strokes ? d.strokes.length : ""; demoLoop(); })
-      .catch(()=>demoLoop());
-  }
-  function demoLoop(){      // ① minh họa thứ tự nét — LẶP cho tới khi bấm "Tôi tự viết"
-    if(phase!=="demo" || !writer) return;
-    label("①&nbsp;Xem mẫu — thứ tự nét (đang lặp)");
-    writer.hideCharacter({duration:0});
-    writer.animateCharacter({ onComplete:()=>{ if(phase==="demo") setTimeout(demoLoop, 700); } });
-  }
-  function startQuiz(){     // ② tự viết lại
-    phase="quiz"; setButtons();
-    label("②&nbsp;Viết lại theo thứ tự nét");
-    writer.hideCharacter({duration:0});
-    writer.quiz({
-      onMistake:()=>{ mistakes++; },
-      onComplete:()=>{
-        ci++;
-        if(ci<chars.length){ setTimeout(startChar,400); }
-        else finishWrite();
-      }
-    });
-  }
-  function finishWrite(){
-    speak(x.w);
-    const g = mistakes===0 ? 2 : (mistakes<=chars.length*2 ? 1 : 0);
-    if(g===2) session.correct++;
-    logReview(x.w, g===2);
-    setTimeout(advance, 800);
-  }
-  startChar();
-}
-
-function bindCard(x, restore){
-  if(session.mode==="flash"){
-    const flip=()=>{
-      document.getElementById("flashBack").style.display="block";
-      document.getElementById("flipBtn").style.display="none";
-      document.getElementById("gradeRow").style.display="grid";
-      savePractice();
-    };
-    document.getElementById("flipBtn").onclick=flip;
-    document.getElementById("gradeRow").onclick=e=>{
-      const b=e.target.closest("button[data-g]"); if(!b) return;
-      const g=+b.dataset.g; if(g===2) session.correct++;
-      logReview(x.w, g===2); advance();
-    };
-    if(restore && restore.flipped) flip();
-  }else{
-    const wrap=document.getElementById("optWrap");
-    function mark(pickedW){       // tô đúng/sai — dùng chung cho lúc trả lời và lúc khôi phục
-      wrap.dataset.done="1"; wrap.dataset.picked=pickedW||"";
-      wrap.querySelectorAll(".opt").forEach(o=>{
-        if(o.dataset.w===x.w) o.classList.add("correct");
-        else if(o.dataset.w===pickedW) o.classList.add("wrong");
-      });
-    }
-    wrap.addEventListener("click",e=>{
-      const b=e.target.closest(".opt"); if(!b||wrap.dataset.done) return;
-      const ok=b.dataset.w===x.w;
-      mark(b.dataset.w);
-      if(ok) session.correct++;
-      speak(x.w);
-      logReview(x.w, ok);
-      savePractice();
-      setTimeout(advance, ok?700:1500);
-    });
-    if(restore && restore.done){     // đã trả lời trước khi tắt → hiện lại kết quả + nút đi tiếp
-      mark(restore.picked);
-      const nb=el(`<button class="btn btn-primary" style="margin-top:10px">Câu tiếp →</button>`);
-      nb.onclick=advance; wrap.after(nb);
-    }
-  }
 }
 function advance(){ session.i++; if(session && session.ai) nextExam(); else nextCard(); }
 function finishSession(){

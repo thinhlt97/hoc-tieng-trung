@@ -20,8 +20,10 @@ dần), sau đó học nghiêm túc. Luồng dùng:
    Nút chuyển THỦ CÔNG: Nhóm 1→2, 2→3, lùi lại, “✕ Bỏ ôn” (trả về là từ mới ở Hôm nay).
    Ngoài ra có **thăng nhóm TỰ ĐỘNG bằng điểm** (chỉ từ bài “Nghe → gõ pinyin”, xem §4).
    **Không có SRS lịch ôn tự động.**
-5. **Luyện tập**: các kiểu bài (Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn,
-   Nghe→gõ pinyin, Tập viết, Trắc nghiệm, Dịch câu). Mỗi phiên **15 câu**, bốc theo
+5. **Luyện tập**: **3 kiểu bài** — ⌨ Nghe → gõ pinyin (mặc định), 🎯 Trắc nghiệm 5 câu,
+   📝 Dịch câu. (Các kiểu Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, Tập viết **đã gỡ
+   bỏ** theo yêu cầu — người dùng không dùng. Nút ✍ “xem cách viết” ở tab Hôm nay/Từ vựng
+   vẫn giữ, Hanzi Writer vẫn cần.) Mỗi phiên **15 câu**, bốc theo
    **tỉ lệ 70% Nhóm 1 · 20% Nhóm 2 · 10% Nhóm 3** (`buildPool(15)` → 11/3/1). Nhóm
    rỗng thì dồn quota sang nhóm còn từ (ưu tiên 1→2→3); nhóm ít từ thì cho lặp lại.
    Kết quả CHỈ tính vào streak/heatmap (`logReview`), KHÔNG tự đổi nhóm.
@@ -198,19 +200,21 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
   qua Gemini hoạt động thật; GROQ chưa xác nhận có key hay chưa).
   Deploy lại: `cd proxy && vercel deploy --prod --yes --scope thinhlt1069s-projects`.
 - ✅ **1191 từ** (HSK1 151 + HSK2 147 + HSK3 295 + HSK4 598) + 33 câu;
-  **8 kiểu luyện tập** + SRS. HSK3/HSK4 dịch từ danh sách chuẩn HSK 2012
+  **3 kiểu luyện tập**. HSK3/HSK4 dịch từ danh sách chuẩn HSK 2012
   (nguồn `glxxyz/hskhsk.com`), pinyin lấy gốc, nghĩa Việt + pos + cat do bổ sung.
   pos thêm: `liên` (liên từ). cat thêm: `học tập`, `trang phục`, `thiên nhiên`.
-- ✅ **Kiểu luyện tập** (8): Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn,
-  **🎯 Trắc nghiệm 5 câu** (`makeExam`/`bindExamCard`/`examExplain`): mỗi phiên 5 câu
-  ABCD, trộn ngẫu nhiên 4 dạng hỏi (Hán→nghĩa, nghĩa→Hán, pinyin→Hán, Hán→pinyin);
-  chọn xong **hiện giải thích** (đúng: nghĩa+pinyin từ đúng; sai: nêu rõ từ bạn chọn
-  thực ra nghĩa gì rồi mới chỉ đáp án đúng) + nút "Câu tiếp →". Chạy **offline** từ
-  `HSK_WORDS`, tính vào SRS như các kiểu khác.
-  **⌨ Nghe → gõ pinyin** (so khớp pinyin đã bỏ dấu, hàm `normPinyin`),
-  **✍ Tập viết** (Hanzi Writer): mỗi chữ có 2 bước — ① xem mẫu thứ tự nét
-  (animateCharacter **lặp liên tục** cho tới khi bấm "Tôi tự viết", tự cuộn ô vào
-  giữa) → ② viết lại (quiz), hiện số nét, chấm theo số lần sai.
+- ✅ **Kiểu luyện tập — CHỈ CÒN 3** (chip `#practiceModes`, `pMode` mặc định `typepy`;
+  `MODE_NAMES` là danh sách kiểu HỢP LỆ — `loadPractice()` tự bỏ bài dở của kiểu đã gỡ):
+  **⌨ Nghe → gõ pinyin** (`typeCard`/`bindTypeCard`, so khớp `normPinyin`/`normPinyinStrict`;
+  đây là kiểu DUY NHẤT cộng/trừ `pts` để tự thăng nhóm — xem §4),
+  **🎯 Trắc nghiệm 5 câu** (`makeExam`/`bindExamCard`/`examExplain`): mỗi câu ABCD, trộn
+  ngẫu nhiên 4 dạng hỏi (Hán→nghĩa, nghĩa→Hán, pinyin→Hán, Hán→pinyin); chọn xong hiện
+  giải thích + nút "Câu tiếp →". Chạy **offline** từ `HSK_WORDS` (có bản AI `startExam`,
+  fallback `startExamOffline`),
+  **📝 Dịch câu** (xem gạch dưới).
+  ĐÃ GỠ (2026-07): Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, ✍ Tập viết — cùng các hàm
+  `flashCard`/`quizCard`/`writeCard`/`bindWriteCard`/`hanChars`/`bindCard` và CSS `.grade`.
+  **Hanzi Writer vẫn giữ** vì nút ✍ "xem cách viết" ở tab Hôm nay/Từ vựng còn dùng.
 - ✅ **📝 Dịch câu** (kiểu luyện tập, `startTranslate`/`renderTranslate`/`transReveal`):
   AI tạo 5 câu tiếng Trung theo trình độ (lấy từ chip phạm vi qua `levelFromScope`,
   mặc định HSK1). Mỗi câu là 1 ô có nút "👁 Dịch nghĩa" — bấm để hiện/ẩn phiên âm +
@@ -228,9 +232,8 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
   thoại + chạy offline. SW: app shell network-first, font/CDN cache-first, API không
   cache. Đổi `CACHE_VER` trong `sw.js` khi muốn ép làm mới. Nút “⤓ Cài app” hiện ở
   header khi trình duyệt hỗ trợ `beforeinstallprompt`.
-- ✅ **Luyện viết chữ Hán** (Hanzi Writer 3.7.1 qua CDN jsdelivr): kiểu luyện tập
-  “✍ Tập viết” — viết từng nét, chấm theo số lần sai → tính vào SRS. Đa ký tự thì viết
-  lần lượt từng chữ.
+- ✅ **Hanzi Writer 3.7.1** (CDN jsdelivr): nay chỉ còn phục vụ nút ✍ “xem cách viết”
+  (`showStrokeGuide`); kiểu luyện tập “✍ Tập viết” đã gỡ.
 - ✅ **Tab Ngữ pháp** (`#view-grammar`, `renderGrammar`): tổng hợp **45 điểm ngữ pháp**
   HSK1–3 offline (`data/grammar.js`), lọc theo cấp (chip HSK1/2/3), mỗi điểm có cấu trúc
   (`.gformula`) + giải thích + 2 ví dụ (có loa). Nút “🎯 Tạo bài tập” → `startGrammarEx(g)`
