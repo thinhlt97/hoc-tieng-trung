@@ -6,7 +6,7 @@
  *  - API (vocab-worker đồng bộ, proxy ví dụ AI): KHÔNG cache — luôn ra mạng.
  * Đổi CACHE_VER mỗi lần sửa danh sách hoặc muốn ép làm mới cache.
  */
-const CACHE_VER = "zh-v19";
+const CACHE_VER = "zh-v20";
 const CORE = "core-" + CACHE_VER;
 const RUNTIME = "runtime-" + CACHE_VER;
 

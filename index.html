@@ -429,6 +429,29 @@ function moveGroup(w, g){
 /* bỏ 1 từ khỏi lịch ôn → quay lại là "từ mới" ở tab Hôm nay */
 function removeFromReview(w){ delete state.progress[w]; save(); markDirty(); }
 
+/* ---- ĐIỂM "Nghe → gõ pinyin" ⇒ TỰ ĐỘNG thăng nhóm ----
+   Chỉ tính ở LẦN GÕ ĐẦU TIÊN của mỗi câu: đúng ngay +1 điểm, sai −0,5 điểm
+   (phần gõ lại sau khi sai KHÔNG tính). Điểm tối thiểu 0, không âm.
+   Đủ 5 điểm ⇒ Nhóm 2; đủ 10 điểm ⇒ Nhóm 3. Chỉ ĐẨY LÊN — mất điểm không bị hạ
+   nhóm, và không kéo xuống nhóm bạn đã tự tay chuyển. */
+const PTS_G2=5, PTS_G3=10;
+function ptsOf(w){ const c=state.progress[w]; return (c && c.pts) || 0; }
+function ptsGoal(gr){ return gr>=3 ? 0 : (gr>=2 ? PTS_G3 : PTS_G2); }   // 0 = đã ở đích
+function fmtPts(p){ return (Math.round(p*2)/2).toString().replace(".",","); }
+/* chấm 1 lượt gõ pinyin → { pts, delta, promoted } (promoted = nhóm vừa lên, 0 nếu không) */
+function scorePinyin(w, ok){
+  const c=state.progress[w];
+  if(!c) return null;                    // từ không nằm trong lịch ôn ⇒ không chấm điểm
+  const delta = ok ? 1 : -0.5;
+  c.pts = Math.max(0, Math.round(((c.pts||0)+delta)*2)/2);
+  const target = c.pts>=PTS_G3 ? 3 : (c.pts>=PTS_G2 ? 2 : 1);
+  let promoted = 0;
+  if(target > (c.group||1)){ c.group=target; promoted=target; }
+  c.last=Date.now();
+  save(); markDirty();
+  return { pts:c.pts, delta, promoted };
+}
+
 /* ghi nhận 1 lượt luyện tập — KHÔNG tự đổi nhóm, chỉ đếm & tính streak/heatmap */
 function logReview(w, ok){
   const c=state.progress[w];
@@ -660,10 +683,16 @@ function tile(n,l){ return el(`<div class="tile"><div class="n">${n}</div><div c
  * TỪ ĐANG ÔN — 3 nhóm, tự chuyển nhóm bằng nút
  * ==================================================================== */
 const GROUP_META={
-  1:{ name:"Nhóm 1 — mới đưa vào ôn", hint:"Vừa từ Hôm nay chuyển sang. Học kỹ rồi chuyển lên Nhóm 2." },
-  2:{ name:"Nhóm 2 — đã học đủ lâu", hint:"Đã quen mặt. Khi nắm chắc thì chuyển lên Nhóm 3." },
+  1:{ name:"Nhóm 1 — mới đưa vào ôn", hint:"Vừa từ Hôm nay chuyển sang. Chuyển tay lên Nhóm 2, hoặc để tự lên khi đủ 5 điểm." },
+  2:{ name:"Nhóm 2 — đã học đủ lâu", hint:"Đã quen mặt. Chuyển tay lên Nhóm 3, hoặc để tự lên khi đủ 10 điểm." },
   3:{ name:"Nhóm 3 — đã nắm chắc", hint:"Đã thuộc. Vẫn được ôn lại (10%) để khỏi quên." },
 };
+/* badge điểm ⌨ (điểm chỉ đến từ bài "Nghe → gõ pinyin": đúng ngay lần đầu +1, sai −0,5) */
+function ptsBadge(w, gr){
+  const p=ptsOf(w), goal=ptsGoal(gr);
+  if(!goal) return `⌨ ${fmtPts(p)} điểm · ✓ đã ở nhóm cao nhất`;
+  return `⌨ ${fmtPts(p)} / ${goal} điểm → Nhóm ${gr+1}`;
+}
 function renderReview(){
   const g=reviewGroups();
   const tiles=document.getElementById("reviewTiles"); tiles.innerHTML="";
@@ -688,6 +717,7 @@ function renderReview(){
             <div class="row"><span class="word-han" style="font-size:26px">${x.w}</span> ${speakBtn(x.w)} ${writeBtn(x.w)} ${copyBtn(x.w)}</div>
             <div class="pinyin">${x.p} <span class="pos">${x.pos}</span> <span class="cat">HSK${x.lv}</span></div>
             <div class="meaning">${esc(x.vi)}</div>
+            <div class="small muted" style="margin-top:4px">${ptsBadge(x.w, gr)}</div>
           </div>
         </div>
         <div class="row wrap" style="margin-top:8px;gap:6px"></div>
@@ -1393,7 +1423,19 @@ function bindTypeCard(x, restore){
       <div class="small muted" style="margin-top:2px">👆 bấm chữ Hán để xem cách viết · bôi đen hoặc bấm 📋 để sao chép</div>
       <div class="pinyin" style="font-size:18px">${x.p}</div>
       <div class="meaning">${esc(x.vi)}</div>`;
-    if(!skipScore) logReview(x.w, ok);
+    if(!skipScore){
+      logReview(x.w, ok);
+      // Điểm chỉ tính cho LẦN GÕ ĐẦU của câu này (ô "gõ lại" bên dưới không tính)
+      const sc=scorePinyin(x.w, ok);
+      if(sc){
+        const goal=ptsGoal(groupOf(x.w));
+        const tot = goal ? `tổng ${fmtPts(sc.pts)}/${goal} điểm để lên Nhóm ${groupOf(x.w)+1}`
+                         : `tổng ${fmtPts(sc.pts)} điểm · đã ở Nhóm 3`;
+        fb.appendChild(el(`<div class="small" style="margin-top:8px;color:${sc.delta>0?'var(--green)':'var(--bad)'}">
+          <b>${sc.delta>0?'+1':'−0,5'} điểm</b> <span class="muted">(${tot})</span></div>`));
+        if(sc.promoted) toast(`🎉 「${x.w}」 đã lên Nhóm ${sc.promoted}!`);
+      }
+    }
     savePractice();
     if(ok){ fb.appendChild(nextBtn()); return; }
     // SAI: hiện đáp án rồi buộc gõ lại cho đúng mới được sang câu khác

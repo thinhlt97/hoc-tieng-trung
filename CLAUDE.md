@@ -16,10 +16,10 @@ dần), sau đó học nghiêm túc. Luồng dùng:
 2. **Từ vựng**: tra cứu toàn bộ từ HSK (lọc theo cấp/chủ đề, tìm kiếm), nghe phát
    âm, nút “➕ Thêm vào lịch ôn” (đưa vào Nhóm 1); từ đã ôn hiện badge “Nhóm N”.
 3. **Câu**: các câu giao tiếp cơ bản kèm pinyin + nghĩa + phát âm.
-4. **Từ đang ôn** (`#view-review`): chia **3 nhóm THỦ CÔNG** theo độ thành thạo.
-   Nút chuyển: Nhóm 1→2 (đã học đủ lâu), 2→3 (đã nắm chắc), và lùi lại / “✕ Bỏ ôn”
-   (trả về là từ mới ở Hôm nay). **Không còn SRS lịch ôn tự động** — người dùng tự
-   quyết chuyển nhóm.
+4. **Từ đang ôn** (`#view-review`): chia **3 nhóm** theo độ thành thạo.
+   Nút chuyển THỦ CÔNG: Nhóm 1→2, 2→3, lùi lại, “✕ Bỏ ôn” (trả về là từ mới ở Hôm nay).
+   Ngoài ra có **thăng nhóm TỰ ĐỘNG bằng điểm** (chỉ từ bài “Nghe → gõ pinyin”, xem §4).
+   **Không có SRS lịch ôn tự động.**
 5. **Luyện tập**: các kiểu bài (Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn,
    Nghe→gõ pinyin, Tập viết, Trắc nghiệm, Dịch câu). Mỗi phiên **15 câu**, bốc theo
    **tỉ lệ 70% Nhóm 1 · 20% Nhóm 2 · 10% Nhóm 3** (`buildPool(15)` → 11/3/1). Nhóm
@@ -110,16 +110,26 @@ Lỗi luôn trả `{ "error":"..." }` kèm header CORS.
 ```
 {
   code, updatedAt,
-  progress: { "<chữ Hán>": { group:1|2|3, addedAt, last, reps, correct } },
+  progress: { "<chữ Hán>": { group:1|2|3, pts, addedAt, last, reps, correct } },
   stats: { streak, lastDay, reviewsToday, dayKey, history },
   settings: { dailyNew, provider, rate, voiceURI }
 }
 ```
 - **Mô hình 3 nhóm THỦ CÔNG** (thay cho SRS cũ). Có `progress[w]` ⇒ từ đang ôn;
   `group` = 1/2/3. Không có `group` ⇒ vẫn là "từ mới" ở tab Hôm nay.
+- **Điểm & thăng nhóm tự động** (`pts`, chỉ tính ở kiểu luyện tập **“⌨ Nghe → gõ pinyin”**):
+  gõ ĐÚNG ngay **lần bấm “Kiểm tra” đầu tiên** của câu ⇒ **+1**; sai ⇒ **−0,5**
+  (ô “gõ lại cho đúng” sau khi sai KHÔNG tính điểm). Điểm **kẹp sàn 0** (không âm).
+  Đủ **5 điểm ⇒ Nhóm 2**, đủ **10 điểm ⇒ Nhóm 3** (điểm cộng dồn, không reset khi lên nhóm).
+  Chỉ **ĐẨY LÊN**: mất điểm KHÔNG hạ nhóm, và không kéo xuống nhóm người dùng đã tự tay chuyển
+  (`target > group` mới đổi). Hàm: `scorePinyin(w, ok)` → `{pts, delta, promoted}`,
+  `ptsOf/ptsGoal/fmtPts/ptsBadge`; hằng `PTS_G2=5`, `PTS_G3=10`. Gọi trong `bindTypeCard.check()`
+  ngay sau `logReview`, bỏ qua khi `skipScore` (lúc khôi phục câu đã chấm ⇒ không cộng lại).
+  UI: dòng “+1 điểm (tổng 4/5…)” trong ô kết quả, toast “🎉 lên Nhóm N”, badge `⌨ x/5 điểm`
+  ở tab Từ đang ôn. Các kiểu luyện tập KHÁC không cộng/trừ điểm.
 - Hàm chính (index.html):
   - `addToReview(w)` — đưa vào Nhóm 1; `moveGroup(w,g)` — chuyển nhóm (clamp 1..3);
-    `removeFromReview(w)` — bỏ khỏi lịch ôn.
+    `removeFromReview(w)` — bỏ khỏi lịch ôn (mất luôn `pts`).
   - `reviewGroups()` → `{1:[],2:[],3:[]}` (giữ thứ tự HSK); `groupOf(w)`; `newCandidates()`.
   - `buildPool(total=15)` — bốc theo tỉ lệ 70/20/10, dồn quota nhóm rỗng + cho lặp.
   - `logReview(w,ok)` — ghi 1 lượt luyện tập (đếm + streak/heatmap), **KHÔNG đổi nhóm**.
