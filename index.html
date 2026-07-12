@@ -87,6 +87,10 @@ h2.section{font-family:var(--han); font-weight:700; font-size:20px; margin:4px 0
 .pos{display:inline-block; font-size:11px; color:var(--muted); border:1px solid var(--line);
   border-radius:6px; padding:1px 6px; vertical-align:middle}
 .cat{font-size:11px; color:var(--gold); font-weight:600}
+/* chip âm Hán Việt (chỉ HSK1-2, những từ có trường hv trong data/hsk.js) */
+.hv{display:inline-block; font-size:11px; font-weight:700; letter-spacing:.3px;
+  color:var(--red-dark); background:rgba(178,34,34,.08); border:1px solid rgba(178,34,34,.25);
+  border-radius:6px; padding:1px 6px; vertical-align:middle}
 .muted{color:var(--muted)}
 .small{font-size:13px}
 
@@ -565,6 +569,9 @@ function toast(msg){
   clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),2200);
 }
 function speakBtn(text){ return `<button class="speak" onclick="speak('${text.replace(/'/g,"\\'")}')">🔊</button>`; }
+/* chip âm Hán Việt — chỉ hiện với từ có sẵn `hv` trong data/hsk.js (hiện mới có HSK1-2;
+   trợ từ / từ phiên âm như 吗, 咖啡 cố ý để trống vì âm Hán Việt không giúp nhớ nghĩa) */
+function hvChip(x){ return x && x.hv ? ` <span class="hv" title="Âm Hán Việt">漢 ${esc(x.hv)}</span>` : ""; }
 function copyText(text){
   const done=()=>toast("Đã sao chép: "+text);
   if(navigator.clipboard && navigator.clipboard.writeText){
@@ -715,7 +722,7 @@ function renderReview(){
         <div class="row spread wrap">
           <div>
             <div class="row"><span class="word-han" style="font-size:26px">${x.w}</span> ${speakBtn(x.w)} ${writeBtn(x.w)} ${copyBtn(x.w)}</div>
-            <div class="pinyin">${x.p} <span class="pos">${x.pos}</span> <span class="cat">HSK${x.lv}</span></div>
+            <div class="pinyin">${x.p} <span class="pos">${x.pos}</span> <span class="cat">HSK${x.lv}</span>${hvChip(x)}</div>
             <div class="meaning">${esc(x.vi)}</div>
             <div class="small muted" style="margin-top:4px">${ptsBadge(x.w, gr)}</div>
           </div>
@@ -783,7 +790,8 @@ function renderVocab(){
   const list=WORDS.filter(w=>
     (vFilter.level==="all"||w.lv===vFilter.level) &&
     (vFilter.cat==="all"||w.cat===vFilter.cat) &&
-    (!q || w.w.includes(q) || (qp && normPinyin(w.p).includes(qp)) || w.vi.toLowerCase().includes(q))
+    (!q || w.w.includes(q) || (qp && normPinyin(w.p).includes(qp)) || w.vi.toLowerCase().includes(q)
+        || (w.hv && w.hv.toLowerCase().includes(q)))   // tìm được cả bằng âm Hán Việt (vd: "học sinh")
   );
   document.getElementById("vocabCount").textContent=`${list.length} từ`;
   const box=document.getElementById("vocabList"); box.innerHTML="";
@@ -794,7 +802,7 @@ function renderVocab(){
       <div class="row spread wrap">
         <div>
           <div class="row"><span class="word-han">${x.w}</span> ${speakBtn(x.w)} ${writeBtn(x.w)} ${copyBtn(x.w)}</div>
-          <div class="pinyin">${x.p} <span class="pos">${x.pos}</span> <span class="cat">${x.cat}</span> ${badge}</div>
+          <div class="pinyin">${x.p} <span class="pos">${x.pos}</span> <span class="cat">${x.cat}</span>${hvChip(x)} ${badge}</div>
           <div class="meaning">${esc(x.vi)}</div>
         </div>
       </div>

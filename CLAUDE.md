@@ -52,6 +52,12 @@ Tham chiếu kiến trúc app tiếng Anh “The Touchline” (xem `/home/thinh/
 - `index.html` — 1 file HTML+CSS+JS, không framework. Toàn bộ logic SRS, UI, đồng bộ.
 - `data/hsk.js` — dữ liệu từ vựng (`HSK_WORDS`) + câu (`HSK_SENTENCES`). **Offline**,
   không cần API. Thêm cấp HSK2/3… chỉ cần nối vào mảng `HSK_WORDS` (mỗi mục có `lv`).
+  Trường **`hv`** (tùy chọn) = **âm Hán Việt** (vd `学生` → `"HỌC SINH"`): hiện thành chip
+  `漢 …` (`hvChip()`, CSS `.hv`) ở tab **Từ vựng** và **Từ đang ôn**, và tìm kiếm ở tab Từ
+  vựng khớp được cả theo `hv`. Hiện MỚI CÓ cho **HSK1+HSK2** (285/298 từ); trợ từ (的, 了,
+  吗, 呢, 吧, 着), chỉ định (这, 那, 哪, 些, 喂) và từ phiên âm (咖啡) **cố ý bỏ trống** vì âm
+  Hán Việt không giúp nhớ nghĩa. Từ không có `hv` thì không hiện chip ⇒ thêm HSK3/4 sau này
+  chỉ cần điền thêm `hv`, không phải sửa code.
 - `data/grammar.js` — dữ liệu ngữ pháp (`HSK_GRAMMAR`) cho tab **Ngữ pháp**. **Offline**
   (tra cứu + tiếp xúc). Mỗi mục: `{lv, id, title, formula, explain, examples:[{zh,p,vi}]}`.
   Nút “🎯 Tạo bài tập” ở mỗi điểm mới cần AI (proxy `task:"grammar"`).
