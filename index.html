@@ -1421,7 +1421,7 @@ function bindTypeCard(x, restore){
         ${copyBtn(x.w)}
       </div>
       <div class="small muted" style="margin-top:2px">👆 bấm chữ Hán để xem cách viết · bôi đen hoặc bấm 📋 để sao chép</div>
-      <div class="pinyin" style="font-size:18px">${x.p}</div>
+      <div class="pinyin" style="font-size:18px">${x.p}${hvChip(x)}</div>
       <div class="meaning">${esc(x.vi)}</div>`;
     if(!skipScore){
       logReview(x.w, ok);
@@ -1488,7 +1488,7 @@ function showTypeReview(idx, resume){
           title="Bấm để xem cách viết (có thể bôi đen để copy)" onclick="showStrokeGuide(this,'${w}')">${x.w}</span>
         ${copyBtn(x.w)}
       </div>
-      <div class="pinyin" style="font-size:18px">${x.p}</div>
+      <div class="pinyin" style="font-size:18px">${x.p}${hvChip(x)}</div>
       <div class="meaning">${esc(x.vi)}</div>
       <div class="row wrap" style="justify-content:center;gap:8px;margin-top:16px">
         <button class="btn btn-ghost" id="revPrev" ${idx<=0?"disabled":""}>◀ Từ trước</button>
