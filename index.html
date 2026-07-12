@@ -206,7 +206,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
   <!-- ========================= TỪ ĐANG ÔN ========================= -->
   <section class="view" id="view-review">
     <h2 class="section">复习 · Từ đang ôn</h2>
-    <p class="lead">Từ chia 3 nhóm theo độ thành thạo. Tự bấm chuyển: đã học đủ lâu → Nhóm 2, đã nắm chắc → Nhóm 3. Luyện tập lấy từ theo tỉ lệ 70% Nhóm 1 · 20% Nhóm 2 · 10% Nhóm 3.</p>
+    <p class="lead">Từ chia 3 nhóm theo độ thành thạo. Tự bấm chuyển: đã học đủ lâu → Nhóm 2, đã nắm chắc → Nhóm 3. Luyện tập ưu tiên Nhóm 1 (Nghe → gõ pinyin 80/15/5 · Trắc nghiệm 70/20/10).</p>
     <div class="tiles" id="reviewTiles"></div>
     <div id="reviewBody"></div>
   </section>
@@ -243,7 +243,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
   <!-- ========================= LUYỆN TẬP ========================= -->
   <section class="view" id="view-practice">
     <h2 class="section">练习 · Luyện tập</h2>
-    <p class="lead">Mỗi phiên 15 câu, lấy từ trong “Từ đang ôn” theo tỉ lệ 70% Nhóm 1 · 20% Nhóm 2 · 10% Nhóm 3.</p>
+    <p class="lead">Mỗi phiên 15 câu, lấy từ trong “Từ đang ôn” theo tỉ lệ nhóm (xem dưới mỗi kiểu bài).</p>
     <div class="chips" id="practiceModes">
       <button class="chip active" data-m="typepy">⌨ Nghe → gõ pinyin</button>
       <button class="chip" data-m="exam">🎯 Trắc nghiệm 5 câu</button>
@@ -488,17 +488,35 @@ function reviewGroups(){
 /* các từ mới kế tiếp (chưa vào lịch ôn), theo thứ tự HSK1→… */
 function newCandidates(){ return WORDS.filter(x=> !state.progress[x.w]); }
 
-/* tạo bộ từ luyện tập theo tỉ lệ 70/20/10 (Nhóm 1/2/3).
+/* Tỉ lệ bốc từ theo nhóm cho từng kiểu bài (Nhóm 1/2/3). Kiểu không khai báo ⇒ mặc định 70/20/10. */
+const POOL_RATIO = { typepy:[0.80, 0.15, 0.05] };     // ⌨ Nghe → gõ pinyin: 80/15/5
+const POOL_RATIO_DEFAULT = [0.70, 0.20, 0.10];        // 🎯 Trắc nghiệm 5 câu (và mặc định)
+function ratioText(r){ return r.map(x=>Math.round(x*100)+"%").join(" · "); }
+
+/* tạo bộ từ luyện tập theo tỉ lệ (mặc định 70/20/10).
+   Số câu không chia chẵn ⇒ phần lẻ bốc NGẪU NHIÊN theo đúng phần thập phân
+   (vd 80/15/5 với 15 câu = 12 / 2,25 / 0,75 ⇒ luôn 12 câu Nhóm 1, còn Nhóm 3
+   xuất hiện 1 câu với xác suất 75%, không thì phần đó về Nhóm 2).
    Nhóm rỗng ⇒ dồn phần thiếu sang nhóm còn từ (ưu tiên 1→2→3);
    nhóm ít từ ⇒ cho lặp lại để vẫn đủ số câu. */
-function buildPool(total){
+function buildPool(total, ratio){
   total = total||15;
+  const r = ratio || POOL_RATIO_DEFAULT;
   const g=reviewGroups();
   const src=[g[1],g[2],g[3]];
   const avail=src.map(a=>a.length);
   if(avail[0]+avail[1]+avail[2]===0) return [];
-  let want=[Math.round(total*0.7), Math.round(total*0.2), 0];
-  want[2]=total-want[0]-want[1];
+  const exact=r.map(x=>total*x);
+  let want=exact.map(x=>Math.floor(x));
+  let left=total-want.reduce((a,b)=>a+b,0);            // số câu lẻ còn thừa
+  const frac=exact.map((x,i)=>x-want[i]);
+  while(left>0){                                       // chia phần lẻ theo xác suất = phần thập phân
+    const sum=frac.reduce((a,b)=>a+b,0);
+    if(sum<=0){ want[0]+=left; break; }
+    let t=Math.random()*sum, k=0;
+    for(let i=0;i<3;i++){ t-=frac[i]; if(t<=0){ k=i; break; } }
+    want[k]++; frac[k]=0; left--;
+  }
   const prio=[0,1,2];
   for(let i=0;i<3;i++){
     if(avail[i]===0 && want[i]>0){
@@ -1227,7 +1245,7 @@ function renderScopeList(){
     return `<p class="small muted" style="margin:10px 0 6px"><b>Nhóm ${gr}</b> · ${g[gr].length} từ</p>
       <div style="display:grid;gap:6px">${rows}</div>`;
   };
-  box.innerHTML=`<p class="small muted" style="margin:0 0 4px">Mỗi phiên bốc 15 câu theo tỉ lệ 70/20/10 từ các nhóm:</p>
+  box.innerHTML=`<p class="small muted" style="margin:0 0 4px">Mỗi phiên bốc 15 câu theo tỉ lệ ${ratioText(POOL_RATIO[pMode]||POOL_RATIO_DEFAULT)} (Nhóm 1 · 2 · 3):</p>
     ${section(1)}${section(2)}${section(3)}`;
 }
 function updateScopeInfo(){
@@ -1241,8 +1259,9 @@ function updateScopeInfo(){
     return;
   }
   const total=g[1].length+g[2].length+g[3].length;
+  const rt=ratioText(POOL_RATIO[pMode]||POOL_RATIO_DEFAULT);
   el.textContent = total
-    ? `Đang ôn ${total} từ · Nhóm 1: ${g[1].length} · Nhóm 2: ${g[2].length} · Nhóm 3: ${g[3].length}`
+    ? `Đang ôn ${total} từ · Nhóm 1: ${g[1].length} · Nhóm 2: ${g[2].length} · Nhóm 3: ${g[3].length} · bốc theo ${rt}`
     : "Chưa có từ đang ôn — vào tab Hôm nay bấm “Ôn tập”.";
 }
 function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];} return a; }
@@ -1357,7 +1376,7 @@ function startSession(mode){
   if(mode==="zhvi"){ startZhvi(); return; }
   if(mode==="vi2zh"){ startVi2zh(); return; }
   if(mode==="sentpy"){ startSentpy(); return; }
-  const pool=buildPool(15);
+  const pool=buildPool(15, POOL_RATIO[mode]);
   if(pool.length===0){
     session=null; clearPractice();
     document.getElementById("practiceArea").innerHTML=emptyReviewHtml;

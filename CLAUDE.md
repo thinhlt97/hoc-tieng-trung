@@ -24,8 +24,11 @@ dần), sau đó học nghiêm túc. Luồng dùng:
    📝 Dịch Trung → Việt, 📝 Dịch Việt → Trung, 🎧 Nghe câu → gõ pinyin. (Các kiểu Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, Tập viết **đã gỡ
    bỏ** theo yêu cầu — người dùng không dùng. Nút ✍ “xem cách viết” ở tab Hôm nay/Từ vựng
    vẫn giữ, Hanzi Writer vẫn cần.) Mỗi phiên **15 câu**, bốc theo
-   **tỉ lệ 70% Nhóm 1 · 20% Nhóm 2 · 10% Nhóm 3** (`buildPool(15)` → 11/3/1). Nhóm
-   rỗng thì dồn quota sang nhóm còn từ (ưu tiên 1→2→3); nhóm ít từ thì cho lặp lại.
+   **tỉ lệ theo từng kiểu bài** (`POOL_RATIO`, `buildPool(15, ratio)`):
+   ⌨ Nghe → gõ pinyin = **80/15/5** (⇒ 12 câu Nhóm 1; Nhóm 3 có 1 câu với xác suất 75%,
+   không thì phần đó về Nhóm 2), các kiểu khác = **70/20/10** (`POOL_RATIO_DEFAULT`).
+   Số câu lẻ được **làm tròn ngẫu nhiên theo phần thập phân** nên trung bình đúng tỉ lệ.
+   Nhóm rỗng thì dồn quota sang nhóm còn từ (ưu tiên 1→2→3); nhóm ít từ thì cho lặp lại.
    Kết quả CHỈ tính vào streak/heatmap (`logReview`), KHÔNG tự đổi nhóm.
 6. **Tiến độ**: streak, “từ đã nắm chắc” = Nhóm 3, % theo từng cấp, heatmap, lộ trình.
 7. **Cài đặt**: mã cá nhân (đồng bộ), số từ hiển thị ở Hôm nay, nhà cung cấp AI,
@@ -148,7 +151,8 @@ Lỗi luôn trả `{ "error":"..." }` kèm header CORS.
   - `addToReview(w)` — đưa vào Nhóm 1; `moveGroup(w,g)` — chuyển nhóm (clamp 1..3);
     `removeFromReview(w)` — bỏ khỏi lịch ôn (mất luôn `pts`).
   - `reviewGroups()` → `{1:[],2:[],3:[]}` (giữ thứ tự HSK); `groupOf(w)`; `newCandidates()`.
-  - `buildPool(total=15)` — bốc theo tỉ lệ 70/20/10, dồn quota nhóm rỗng + cho lặp.
+  - `buildPool(total=15, ratio)` — bốc theo tỉ lệ (`POOL_RATIO[mode]`, mặc định 70/20/10;
+    typepy = 80/15/5), làm tròn ngẫu nhiên phần lẻ, dồn quota nhóm rỗng + cho lặp.
   - `logReview(w,ok)` — ghi 1 lượt luyện tập (đếm + streak/heatmap), **KHÔNG đổi nhóm**.
 - **Migration:** `migrateProgress(st)` — dữ liệu SRS cũ (không có `group`) ⇒ gán Nhóm 1
   (gọi trong `loadState`, sau `mergeStates` ở `syncPull`, và khi nhập JSON) để không
