@@ -83,7 +83,7 @@ function promptQuiz(b) {
 Soạn ĐÚNG ${n} câu hỏi, mỗi câu nhắm vào một từ khác nhau trong danh sách (ưu tiên đa dạng dạng câu).`;
 }
 
-/* ---------- task: sentences (dịch nghĩa câu) ---------- */
+/* ---------- task: sentences / zh2vi (câu tiếng Trung để người học tự dịch sang Việt) ---------- */
 const SYS_SENTENCES = `Bạn là giáo viên tiếng Trung cho người Việt MỚI HỌC.
 Hãy tạo các câu tiếng Trung giản thể NGẮN và ĐƠN GIẢN, ĐÚNG trình độ được yêu cầu,
 chỉ dùng từ vựng và ngữ pháp cơ bản của trình độ đó. Mỗi câu nói về một tình huống
@@ -93,8 +93,10 @@ Với mỗi câu, cung cấp:
 - "pinyin": pinyin có dấu thanh cho cả câu.
 - "vi": dịch nghĩa tiếng Việt tự nhiên.
 - "vocab": danh sách các từ chính trong câu, mỗi từ gồm {"w":"chữ Hán","p":"pinyin có dấu","vi":"nghĩa tiếng Việt"}.
+- "grammar": giải thích NGỮ PHÁP của câu bằng tiếng Việt (2-4 câu ngắn): cấu trúc câu,
+  vị trí các thành phần, công dụng của hư từ/trợ từ (了, 的, 吗, 在…), điểm người Việt hay nhầm.
 Trả về DUY NHẤT JSON hợp lệ dạng:
-{"sentences":[{"zh":"...","pinyin":"...","vi":"...","vocab":[{"w":"...","p":"...","vi":"..."}]}]}
+{"sentences":[{"zh":"...","pinyin":"...","vi":"...","vocab":[{"w":"...","p":"...","vi":"..."}],"grammar":"..."}]}
 Không thêm chữ nào ngoài JSON.`;
 
 function promptSentences(b) {
@@ -259,7 +261,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ exercises });
     }
 
-    if (b.task === "sentences") {
+    // "zh2vi" = kiểu luyện tập "Dịch Trung → Việt" (cùng dạng dữ liệu, có thêm "grammar")
+    if (b.task === "sentences" || b.task === "zh2vi") {
       const raw = await call(SYS_SENTENCES, promptSentences(b), 3000);
       const out = parseJson(raw);
       const sentences = (out.sentences || [])
@@ -271,6 +274,7 @@ export default async function handler(req, res) {
           vocab: Array.isArray(s.vocab)
             ? s.vocab.filter((v) => v && v.w).map((v) => ({ w: String(v.w), p: String(v.p || ""), vi: String(v.vi || "") }))
             : [],
+          grammar: String(s.grammar || ""),
         }));
       return res.status(200).json({ sentences });
     }

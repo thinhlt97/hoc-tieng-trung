@@ -21,7 +21,7 @@ dần), sau đó học nghiêm túc. Luồng dùng:
    Ngoài ra có **thăng nhóm TỰ ĐỘNG bằng điểm** (chỉ từ bài “Nghe → gõ pinyin”, xem §4).
    **Không có SRS lịch ôn tự động.**
 5. **Luyện tập**: **3 kiểu bài** — ⌨ Nghe → gõ pinyin (mặc định), 🎯 Trắc nghiệm 5 câu,
-   📝 Dịch câu. (Các kiểu Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, Tập viết **đã gỡ
+   📝 Dịch Trung → Việt. (Các kiểu Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, Tập viết **đã gỡ
    bỏ** theo yêu cầu — người dùng không dùng. Nút ✍ “xem cách viết” ở tab Hôm nay/Từ vựng
    vẫn giữ, Hanzi Writer vẫn cần.) Mỗi phiên **15 câu**, bốc theo
    **tỉ lệ 70% Nhóm 1 · 20% Nhóm 2 · 10% Nhóm 3** (`buildPool(15)` → 11/3/1). Nhóm
@@ -96,10 +96,11 @@ POST ?code=MA { "data":{} }← { "ok": true }
     "provider":"gemini"|"groq" }
 ← { "examples":[ { "zh","pinyin","vi" } ] }
 ```
-**Dịch câu** (kiểu luyện tập “📝 Dịch câu”):
+**Dịch Trung → Việt** (kiểu luyện tập “📝 Dịch Trung → Việt”):
 ```
-→ { "task":"sentences", "level":"HSK1", "n":5, "provider":"gemini"|"groq" }
-← { "sentences":[ { "zh","pinyin","vi","vocab":[{ "w","p","vi" }] } ] }
+→ { "task":"zh2vi", "level":"HSK1"|"HSK2"|"HSK3", "n":3, "provider":"gemini"|"groq" }
+← { "sentences":[ { "zh","pinyin","vi","vocab":[{ "w","p","vi" }], "grammar":"giải thích ngữ pháp" } ] }
+// task "sentences" là TÊN CŨ, vẫn nhận (cùng handler, cùng dữ liệu trả về).
 ```
 **Bài tập ngữ pháp** (nút “🎯 Tạo bài tập” ở tab Ngữ pháp — sinh 5 câu cho MỘT điểm):
 ```
@@ -211,17 +212,23 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
   ngẫu nhiên 4 dạng hỏi (Hán→nghĩa, nghĩa→Hán, pinyin→Hán, Hán→pinyin); chọn xong hiện
   giải thích + nút "Câu tiếp →". Chạy **offline** từ `HSK_WORDS` (có bản AI `startExam`,
   fallback `startExamOffline`),
-  **📝 Dịch câu** (xem gạch dưới).
+  **📝 Dịch Trung → Việt** (xem gạch dưới).
   ĐÃ GỠ (2026-07): Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, ✍ Tập viết — cùng các hàm
   `flashCard`/`quizCard`/`writeCard`/`bindWriteCard`/`hanChars`/`bindCard` và CSS `.grade`.
   **Hanzi Writer vẫn giữ** vì nút ✍ "xem cách viết" ở tab Hôm nay/Từ vựng còn dùng.
-- ✅ **📝 Dịch câu** (kiểu luyện tập, `startTranslate`/`renderTranslate`/`transReveal`):
-  AI tạo 5 câu tiếng Trung theo trình độ (lấy từ chip phạm vi qua `levelFromScope`,
-  mặc định HSK1). Mỗi câu là 1 ô có nút "👁 Dịch nghĩa" — bấm để hiện/ẩn phiên âm +
-  bản dịch + giải nghĩa từng từ vựng trong câu. Nút "↻ Tạo 5 câu khác". **Cần AI**
-  (proxy `task:"sentences"` → `{sentences:[{zh,pinyin,vi,vocab:[{w,p,vi}]}]}`); KHÔNG
-  tính vào SRS (câu tự do, không nằm trong `HSK_WORDS`). Nếu thiếu `PROXY_URL`/env thì
-  báo cần bật AI.
+- ✅ **📝 Dịch Trung → Việt** (kiểu luyện tập, thay cho “Dịch câu” cũ —
+  `startZhvi`/`renderZhvi`/`zhviAnswerHtml`, state ở biến `transState`
+  `{mode:"zhvi",items,i,level,revealed}`): **chọn trình độ HSK1/HSK2/HSK3** bằng chip
+  `#aiLevels` (lưu ở `state.settings.aiLevel`; `AI_MODES` = danh sách kiểu bài có chọn
+  trình độ — thêm bài AI mới thì nhét mode vào đây). Mỗi lượt gọi AI sinh **3 câu**
+  (`task:"zh2vi"`, n=3) nhưng hiện **TỪNG CÂU một**: người dùng tự dịch → nút
+  “👁 Xem bản dịch” (pinyin + bản dịch + từ vựng + **giải thích ngữ pháp**) → “Câu tiếp
+  theo →”; hết 3 câu thì tự gọi AI sinh tiếp. KHÔNG tính vào SRS.
+  **Lịch sử 7 ngày:** mọi câu hiện ra được lưu vào `localStorage` key `LS_KEY+"_zhvi_hist"`
+  (`pushZhviHist`, khử trùng theo `zh`, tối đa 500 câu); `loadZhviHist()` **tự xóa câu cũ
+  hơn 7 ngày** mỗi lần đọc (`ZHVI_TTL`). Xem lại bằng nút “🗂 Câu đã làm (N)” ngay trong
+  bài (`renderZhviHist`, `<details>` bung ra là có đủ đáp án) + nút “🗑 Xóa hết”. Lịch sử
+  **chỉ ở máy này**, KHÔNG đồng bộ lên vocab-worker (cố ý, cho nhẹ).
 - ✅ **Nút ✍ "xem cách viết" cạnh mỗi từ** ở tab Hôm nay & Từ vựng (`writeBtn` +
   `showStrokeGuide`): bấm để hiện/ẩn ô chạy thứ tự nét ngay tại chỗ (đa ký tự chạy
   lần lượt), có nút "▶ Xem lại". Dùng chung thư viện Hanzi Writer CDN.
