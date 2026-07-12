@@ -20,8 +20,8 @@ dần), sau đó học nghiêm túc. Luồng dùng:
    Nút chuyển THỦ CÔNG: Nhóm 1→2, 2→3, lùi lại, “✕ Bỏ ôn” (trả về là từ mới ở Hôm nay).
    Ngoài ra có **thăng nhóm TỰ ĐỘNG bằng điểm** (chỉ từ bài “Nghe → gõ pinyin”, xem §4).
    **Không có SRS lịch ôn tự động.**
-5. **Luyện tập**: **3 kiểu bài** — ⌨ Nghe → gõ pinyin (mặc định), 🎯 Trắc nghiệm 5 câu,
-   📝 Dịch Trung → Việt. (Các kiểu Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, Tập viết **đã gỡ
+5. **Luyện tập**: **4 kiểu bài** — ⌨ Nghe → gõ pinyin (mặc định), 🎯 Trắc nghiệm 5 câu,
+   📝 Dịch Trung → Việt, 📝 Dịch Việt → Trung. (Các kiểu Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, Tập viết **đã gỡ
    bỏ** theo yêu cầu — người dùng không dùng. Nút ✍ “xem cách viết” ở tab Hôm nay/Từ vựng
    vẫn giữ, Hanzi Writer vẫn cần.) Mỗi phiên **15 câu**, bốc theo
    **tỉ lệ 70% Nhóm 1 · 20% Nhóm 2 · 10% Nhóm 3** (`buildPool(15)` → 11/3/1). Nhóm
@@ -201,10 +201,10 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
   qua Gemini hoạt động thật; GROQ chưa xác nhận có key hay chưa).
   Deploy lại: `cd proxy && vercel deploy --prod --yes --scope thinhlt1069s-projects`.
 - ✅ **1191 từ** (HSK1 151 + HSK2 147 + HSK3 295 + HSK4 598) + 33 câu;
-  **3 kiểu luyện tập**. HSK3/HSK4 dịch từ danh sách chuẩn HSK 2012
+  **4 kiểu luyện tập**. HSK3/HSK4 dịch từ danh sách chuẩn HSK 2012
   (nguồn `glxxyz/hskhsk.com`), pinyin lấy gốc, nghĩa Việt + pos + cat do bổ sung.
   pos thêm: `liên` (liên từ). cat thêm: `học tập`, `trang phục`, `thiên nhiên`.
-- ✅ **Kiểu luyện tập — CHỈ CÒN 3** (chip `#practiceModes`, `pMode` mặc định `typepy`;
+- ✅ **Kiểu luyện tập (4)** (chip `#practiceModes`, `pMode` mặc định `typepy`;
   `MODE_NAMES` là danh sách kiểu HỢP LỆ — `loadPractice()` tự bỏ bài dở của kiểu đã gỡ):
   **⌨ Nghe → gõ pinyin** (`typeCard`/`bindTypeCard`, so khớp `normPinyin`/`normPinyinStrict`;
   đây là kiểu DUY NHẤT cộng/trừ `pts` để tự thăng nhóm — xem §4),
@@ -212,23 +212,28 @@ vào `ALLOWED_ORIGINS` của cả vocab-worker và proxy.
   ngẫu nhiên 4 dạng hỏi (Hán→nghĩa, nghĩa→Hán, pinyin→Hán, Hán→pinyin); chọn xong hiện
   giải thích + nút "Câu tiếp →". Chạy **offline** từ `HSK_WORDS` (có bản AI `startExam`,
   fallback `startExamOffline`),
-  **📝 Dịch Trung → Việt** (xem gạch dưới).
+  **📝 Dịch Trung → Việt** + **📝 Dịch Việt → Trung** (xem gạch dưới).
   ĐÃ GỠ (2026-07): Flashcard, Hán→nghĩa, Nghĩa→Hán, Nghe & chọn, ✍ Tập viết — cùng các hàm
   `flashCard`/`quizCard`/`writeCard`/`bindWriteCard`/`hanChars`/`bindCard` và CSS `.grade`.
   **Hanzi Writer vẫn giữ** vì nút ✍ "xem cách viết" ở tab Hôm nay/Từ vựng còn dùng.
-- ✅ **📝 Dịch Trung → Việt** (kiểu luyện tập, thay cho “Dịch câu” cũ —
-  `startZhvi`/`renderZhvi`/`zhviAnswerHtml`, state ở biến `transState`
-  `{mode:"zhvi",items,i,level,revealed}`): **chọn trình độ HSK1/HSK2/HSK3** bằng chip
-  `#aiLevels` (lưu ở `state.settings.aiLevel`; `AI_MODES` = danh sách kiểu bài có chọn
-  trình độ — thêm bài AI mới thì nhét mode vào đây). Mỗi lượt gọi AI sinh **3 câu**
-  (`task:"zh2vi"`, n=3) nhưng hiện **TỪNG CÂU một**: người dùng tự dịch → nút
-  “👁 Xem bản dịch” (pinyin + bản dịch + từ vựng + **giải thích ngữ pháp**) → “Câu tiếp
-  theo →”; hết 3 câu thì tự gọi AI sinh tiếp. KHÔNG tính vào SRS.
-  **Lịch sử 7 ngày:** mọi câu hiện ra được lưu vào `localStorage` key `LS_KEY+"_zhvi_hist"`
-  (`pushZhviHist`, khử trùng theo `zh`, tối đa 500 câu); `loadZhviHist()` **tự xóa câu cũ
-  hơn 7 ngày** mỗi lần đọc (`ZHVI_TTL`). Xem lại bằng nút “🗂 Câu đã làm (N)” ngay trong
-  bài (`renderZhviHist`, `<details>` bung ra là có đủ đáp án) + nút “🗑 Xóa hết”. Lịch sử
-  **chỉ ở máy này**, KHÔNG đồng bộ lên vocab-worker (cố ý, cho nhẹ).
+- ✅ **📝 HAI BÀI DỊCH bằng AI** (thay cho “Dịch câu” cũ). Dùng chung: chip trình độ
+  **HSK1/HSK2/HSK3** (`#aiLevels`, lưu ở `state.settings.aiLevel`; `AI_MODES` = danh sách
+  mode có chọn trình độ — thêm bài AI mới thì nhét mode vào đây), hàm lấy câu
+  `fetchTransItems()` gọi proxy `task:"zh2vi"` **n=3** (dữ liệu `{zh,pinyin,vi,vocab,grammar}`
+  dùng được cho CẢ HAI chiều nên KHÔNG cần task riêng), khối đáp án `ansHtml(s, showZh)`.
+  Cả hai KHÔNG tính vào SRS/streak.
+  - **`zhvi` — Dịch Trung → Việt** (`startZhvi`/`renderZhvi`): hiện **TỪNG CÂU** chữ Hán →
+    tự dịch → “👁 Xem bản dịch” (pinyin + dịch + từ vựng + **ngữ pháp**) → “Câu tiếp theo →”;
+    hết 3 câu tự gọi AI sinh tiếp.
+  - **`vi2zh` — Dịch Việt → Trung** (`startVi2zh`/`renderVi2zh`): hiện **CẢ 3 CÂU tiếng Việt**
+    cùng lúc, mỗi câu có **ô gõ chữ Hán** (không bắt buộc) + nút “👁 Xem kết quả” riêng →
+    hiện “Bạn viết” cạnh đáp án chữ Hán + pinyin + từ vựng + ngữ pháp. Nút “↻ Tạo 3 câu khác”.
+  - **Lịch sử DÙNG CHUNG, tự xóa sau 7 ngày:** `HIST_KEY = LS_KEY+"_zhvi_hist"` (giữ tên key cũ),
+    `HIST_TTL`, `loadHist()` (dọn câu quá hạn mỗi lần đọc; bản ghi cũ không có `kind` ⇒ coi là
+    `zhvi`), `pushHist(s, level, kind)` (khử trùng theo `kind+zh`, tối đa 500), `clearHist()`.
+    Xem lại bằng nút “🗂 Câu đã làm (N)” trong cả hai bài (`histBarHtml`/`bindHistBar`/`renderHist`,
+    `<details>` bung ra là đủ đáp án, có nhãn Trung→Việt / Việt→Trung) + nút “🗑 Xóa hết”.
+    **Chỉ ở máy này**, KHÔNG đồng bộ lên vocab-worker (cố ý, cho nhẹ).
 - ✅ **Nút ✍ "xem cách viết" cạnh mỗi từ** ở tab Hôm nay & Từ vựng (`writeBtn` +
   `showStrokeGuide`): bấm để hiện/ẩn ô chạy thứ tự nét ngay tại chỗ (đa ký tự chạy
   lần lượt), có nút "▶ Xem lại". Dùng chung thư viện Hanzi Writer CDN.

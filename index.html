@@ -248,6 +248,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
       <button class="chip active" data-m="typepy">⌨ Nghe → gõ pinyin</button>
       <button class="chip" data-m="exam">🎯 Trắc nghiệm 5 câu</button>
       <button class="chip" data-m="zhvi">📝 Dịch Trung → Việt</button>
+      <button class="chip" data-m="vi2zh">📝 Dịch Việt → Trung</button>
     </div>
     <div class="card" id="practiceScopeCard">
       <!-- chọn trình độ — chỉ dùng cho các bài AI sinh câu (Dịch Trung → Việt) -->
@@ -1180,14 +1181,14 @@ function grTransCard(it,i,saved,onChange){
  * LUYỆN TẬP
  * ==================================================================== */
 let pMode="typepy";
-const AI_MODES=["zhvi"];                    // các kiểu bài AI tự sinh câu → có chọn trình độ HSK1-3
+const AI_MODES=["zhvi","vi2zh"];            // các kiểu bài AI tự sinh câu → có chọn trình độ HSK1-3
 function aiLevel(){ return state.settings.aiLevel || "HSK1"; }
 function syncLevelChips(){
   const box=document.getElementById("aiLevels");
   box.style.display = AI_MODES.includes(pMode) ? "flex" : "none";
   box.querySelectorAll(".chip").forEach(c=>c.classList.toggle("active", c.dataset.lv===aiLevel()));
   document.getElementById("startPractice").textContent =
-    pMode==="zhvi" ? "Bắt đầu dịch câu" : "Bắt đầu 15 câu";
+    AI_MODES.includes(pMode) ? "Bắt đầu dịch câu" : "Bắt đầu 15 câu";
 }
 document.getElementById("aiLevels").addEventListener("click",e=>{
   const b=e.target.closest("button[data-lv]"); if(!b) return;
@@ -1211,7 +1212,7 @@ document.getElementById("viewScopeList").onclick=function(){
 function renderScopeList(){
   const box=document.getElementById("scopeListBox");
   if(AI_MODES.includes(pMode)){
-    box.innerHTML=`<p class="small muted">Kiểu “📝 Dịch Trung → Việt” do AI sinh câu theo trình độ ${esc(aiLevel())} đã chọn ở trên, không dùng danh sách từ đang ôn.</p>`;
+    box.innerHTML=`<p class="small muted">Các bài dịch do AI sinh câu theo trình độ ${esc(aiLevel())} đã chọn ở trên, không dùng danh sách từ đang ôn.</p>`;
     return;
   }
   const g=reviewGroups();
@@ -1232,8 +1233,9 @@ function updateScopeInfo(){
   const el=document.getElementById("practiceScopeInfo");
   const g=reviewGroups();
   if(AI_MODES.includes(pMode)){
-    const n=loadZhviHist().length;
-    el.textContent=`AI sinh câu ${aiLevel()} để bạn tự dịch · ${n} câu đã làm trong 7 ngày qua`;
+    const n=loadHist().length;
+    const dir=pMode==="vi2zh" ? "Việt → Trung" : "Trung → Việt";
+    el.textContent=`AI sinh câu ${aiLevel()} để bạn tự dịch ${dir} · ${n} câu đã làm trong 7 ngày qua`;
     return;
   }
   const total=g[1].length+g[2].length+g[3].length;
@@ -1249,7 +1251,8 @@ const emptyReviewHtml=`<div class="empty"><span class="em">空</span>Chưa có t
 
 /* ---- Lưu / khôi phục bài luyện tập đang làm dở (localStorage, chỉ trên máy này) ---- */
 const PRAC_KEY = LS_KEY + "_practice";
-const MODE_NAMES = { typepy:"Nghe → gõ pinyin", exam:"Trắc nghiệm 5 câu", zhvi:"Dịch Trung → Việt" };
+const MODE_NAMES = { typepy:"Nghe → gõ pinyin", exam:"Trắc nghiệm 5 câu",
+  zhvi:"Dịch Trung → Việt", vi2zh:"Dịch Việt → Trung" };
 function snapshotCard(){        // đọc trạng thái câu đang làm từ DOM
   const m=session.mode;
   if(m==="typepy"){
@@ -1265,6 +1268,8 @@ function snapshotCard(){        // đọc trạng thái câu đang làm từ DOM
 function snapshotPractice(){
   if(transState){
     const t=transState;
+    if(t.mode==="vi2zh")
+      return {mode:"vi2zh", items:t.items, level:t.level, revealed:t.revealed||[], answers:t.answers||[]};
     return {mode:"zhvi", items:t.items, i:t.i, level:t.level, revealed:!!t.revealed};
   }
   if(!session || session.i>=session.total) return null;
@@ -1294,10 +1299,16 @@ function resumePractice(){
   if(!b){ toast("Không còn bài đang làm dở"); renderPracticeHome(); return; }
   const slb=document.getElementById("scopeListBox");
   if(slb){ slb.style.display="none"; document.getElementById("viewScopeList").textContent="👁 Xem từ sẽ luyện"; }
-  if(b.mode==="zhvi"){
+  if(b.mode==="zhvi" || b.mode==="vi2zh"){
     if(!b.items || !b.items.length){ clearPractice(); toast("Bài dở không khôi phục được"); renderPracticeHome(); return; }
-    session=null; transState={mode:"zhvi", items:b.items, i:b.i||0, level:b.level||aiLevel(), revealed:!!b.revealed};
-    renderZhvi();
+    session=null;
+    if(b.mode==="vi2zh"){
+      transState={mode:"vi2zh", items:b.items, level:b.level||aiLevel(), revealed:b.revealed||[], answers:b.answers||[]};
+      renderVi2zh();
+    }else{
+      transState={mode:"zhvi", items:b.items, i:b.i||0, level:b.level||aiLevel(), revealed:!!b.revealed};
+      renderZhvi();
+    }
     return;
   }
   transState=null;
@@ -1318,8 +1329,8 @@ function renderPracticeHome(){
   const area=document.getElementById("practiceArea");
   const b=loadPractice();
   if(!b) return;
-  const label = b.mode==="zhvi"
-    ? `📝 Dịch Trung → Việt · ${esc(b.level||"")} · câu ${(b.i||0)+1}/${(b.items||[]).length}`
+  const label = (b.mode==="zhvi" || b.mode==="vi2zh")
+    ? `📝 ${MODE_NAMES[b.mode]} · ${esc(b.level||"")} · ${b.mode==="vi2zh" ? `${(b.items||[]).length} câu` : `câu ${(b.i||0)+1}/${(b.items||[]).length}`}`
     : `${MODE_NAMES[b.mode]||b.mode} · câu ${(b.i||0)+1}/${b.total||"?"} · đúng ${b.correct||0}`;
   area.innerHTML=`<div class="card" style="border-color:var(--gold)">
     <b>⏸ Có bài đang làm dở</b>
@@ -1337,6 +1348,7 @@ function startSession(mode){
   if(slb){ slb.style.display="none"; document.getElementById("viewScopeList").textContent="👁 Xem từ sẽ luyện"; }
   if(mode==="exam"){ startExam(); return; }
   if(mode==="zhvi"){ startZhvi(); return; }
+  if(mode==="vi2zh"){ startVi2zh(); return; }
   const pool=buildPool(15);
   if(pool.length===0){
     session=null; clearPractice();
@@ -1695,126 +1707,202 @@ function finishSession(){
 }
 
 /* ====================================================================
- * 📝 DỊCH TRUNG → VIỆT (AI sinh câu theo trình độ HSK1-3)
- *   Mỗi lượt gọi AI sinh 3 câu, hiện TỪNG CÂU một; bấm "Xem bản dịch" để
- *   hiện dịch + từ vựng + giải thích ngữ pháp; "Câu tiếp →" sang câu sau
- *   (hết 3 câu thì gọi AI sinh tiếp). Mọi câu được lưu vào lịch sử 7 NGÀY
- *   (localStorage, chỉ máy này) — xem lại bằng nút "🗂 Câu đã làm".
+ * 📝 HAI BÀI DỊCH (AI sinh câu theo trình độ HSK1-3, chọn ở chip #aiLevels)
+ *   - "zhvi"  Dịch Trung → Việt: hiện TỪNG CÂU chữ Hán, tự dịch, bấm
+ *             "Xem bản dịch" → dịch + từ vựng + ngữ pháp, "Câu tiếp →".
+ *   - "vi2zh" Dịch Việt → Trung: hiện CẢ 3 CÂU tiếng Việt, mỗi câu có ô gõ
+ *             chữ Hán + nút "Xem kết quả" (đối chiếu câu mình viết với đáp án).
+ *   Mỗi lượt gọi AI sinh 3 câu (proxy task "zh2vi" — dữ liệu dùng chung cho
+ *   cả hai chiều). Mọi câu vào LỊCH SỬ DÙNG CHUNG, tự xóa sau 7 ngày
+ *   (localStorage, chỉ máy này) — nút "🗂 Câu đã làm".
  *   KHÔNG tính vào SRS/streak (câu tự do, không nằm trong HSK_WORDS).
  * ==================================================================== */
-const ZHVI_HIST_KEY = LS_KEY + "_zhvi_hist";
-const ZHVI_TTL = 7*DAY;                      // câu cũ hơn 7 ngày ⇒ tự xóa
-function loadZhviHist(){
+const HIST_KEY = LS_KEY + "_zhvi_hist";      // giữ tên key cũ để không mất lịch sử đã có
+const HIST_TTL = 7*DAY;                      // câu cũ hơn 7 ngày ⇒ tự xóa
+const KIND_NAME = { zhvi:"Trung → Việt", vi2zh:"Việt → Trung" };
+function loadHist(){
   try{
-    const a=JSON.parse(localStorage.getItem(ZHVI_HIST_KEY))||[];
-    const cut=Date.now()-ZHVI_TTL;
-    const keep=a.filter(x=>x && x.ts>cut);
-    if(keep.length!==a.length) localStorage.setItem(ZHVI_HIST_KEY, JSON.stringify(keep));  // dọn khi đọc
+    const a=JSON.parse(localStorage.getItem(HIST_KEY))||[];
+    const cut=Date.now()-HIST_TTL;
+    const keep=a.filter(x=>x && x.ts>cut).map(x=>({ ...x, kind:x.kind||"zhvi" }));  // bản ghi cũ ⇒ Trung→Việt
+    if(keep.length!==a.length) localStorage.setItem(HIST_KEY, JSON.stringify(keep));  // dọn khi đọc
     return keep;
   }catch(e){ return []; }
 }
-function pushZhviHist(s, level){
+function pushHist(s, level, kind){
   try{
-    const a=loadZhviHist().filter(x=>x.zh!==s.zh);          // câu trùng ⇒ chỉ giữ lần mới nhất
-    a.unshift({ ts:Date.now(), level, zh:s.zh, pinyin:s.pinyin||"", vi:s.vi||"",
+    const a=loadHist().filter(x=>!(x.kind===kind && x.zh===s.zh));   // trùng ⇒ chỉ giữ lần mới nhất
+    a.unshift({ ts:Date.now(), kind, level, zh:s.zh, pinyin:s.pinyin||"", vi:s.vi||"",
                 vocab:s.vocab||[], grammar:s.grammar||"" });
-    localStorage.setItem(ZHVI_HIST_KEY, JSON.stringify(a.slice(0,500)));
+    localStorage.setItem(HIST_KEY, JSON.stringify(a.slice(0,500)));
   }catch(e){}
 }
-function clearZhviHist(){ try{ localStorage.removeItem(ZHVI_HIST_KEY); }catch(e){} }
-/* khối đáp án: phiên âm + bản dịch + từ vựng + ngữ pháp */
-function zhviAnswerHtml(s){
+function clearHist(){ try{ localStorage.removeItem(HIST_KEY); }catch(e){} }
+/* khối đáp án: phiên âm + bản dịch + từ vựng + ngữ pháp (dùng chung 2 bài) */
+function ansHtml(s, showZh){
   const vocab=(s.vocab||[]).map(v=>
     `<li>「<span class="han">${esc(v.w)}</span>」 <span class="muted">/${esc(v.p)}/</span> = ${esc(v.vi)}</li>`).join("");
-  return `<div class="pinyin" style="font-size:16px;margin-top:10px">${esc(s.pinyin||"")}</div>
-    <div class="meaning" style="margin-top:2px;font-weight:600">${esc(s.vi||"")}</div>
+  return `${showZh?`<div class="row" style="gap:8px;align-items:flex-start;margin-top:10px">
+      <div class="word-han" style="font-size:24px;line-height:1.5;flex:1;user-select:text;-webkit-user-select:text">${esc(s.zh)}</div>
+      ${speakBtn(s.zh)}</div>`:""}
+    <div class="pinyin" style="font-size:16px;margin-top:${showZh?"2px":"10px"}">${esc(s.pinyin||"")}</div>
+    ${showZh?"":`<div class="meaning" style="margin-top:2px;font-weight:600">${esc(s.vi||"")}</div>`}
     ${vocab?`<div class="small muted" style="margin-top:10px">Từ vựng trong câu:</div>
       <ul class="small" style="margin:4px 0 0;padding-left:18px;line-height:1.7">${vocab}</ul>`:""}
     ${s.grammar?`<div class="small muted" style="margin-top:10px">Ngữ pháp:</div>
       <div class="small" style="margin-top:2px;line-height:1.6">${esc(s.grammar)}</div>`:""}`;
 }
-async function startZhvi(){
-  session=null; transState=null; clearPractice();      // đang tải câu AI: chưa có gì để khôi phục
-  const area=document.getElementById("practiceArea");
-  const level=aiLevel();
+/* thanh "🗂 Câu đã làm (N)" + hộp danh sách — dùng chung cho cả 2 bài */
+function histBarHtml(statusText){
+  return `<div class="row spread wrap" style="gap:8px">
+      <p class="status" style="margin:0">${esc(statusText)}</p>
+      <button class="btn btn-ghost btn-sm" id="histBtn">🗂 Câu đã làm (${loadHist().length})</button>
+    </div>
+    <div id="histBox" style="display:none;margin-top:10px"></div>`;
+}
+function bindHistBar(){
+  document.getElementById("histBtn").onclick=function(){
+    const box=document.getElementById("histBox");
+    if(box.style.display!=="none"){ box.style.display="none"; this.textContent=`🗂 Câu đã làm (${loadHist().length})`; return; }
+    renderHist(); box.style.display="block"; this.textContent="✕ Ẩn danh sách";
+  };
+}
+function renderHist(){
+  const box=document.getElementById("histBox");
+  const hist=loadHist();
+  if(!hist.length){ box.innerHTML=`<p class="small muted">Chưa có câu nào. Câu đã làm được giữ 7 ngày rồi tự xóa.</p>`; return; }
+  const day=ts=>new Date(ts).toLocaleDateString("vi-VN",{day:"2-digit",month:"2-digit"});
+  box.innerHTML=`<div class="row spread wrap" style="gap:8px;margin-bottom:6px">
+      <p class="small muted" style="margin:0">${hist.length} câu trong 7 ngày qua (câu cũ hơn tự xóa)</p>
+      <button class="btn btn-ghost btn-sm" id="histClear" style="color:var(--bad)">🗑 Xóa hết</button>
+    </div>
+    <div style="display:grid;gap:8px">${hist.map(s=>`
+      <details class="card" style="margin:0;padding:10px 12px">
+        <summary style="cursor:pointer;list-style:none">
+          <span class="word-han" style="font-size:20px">${esc(s.zh)}</span>
+          <span class="small muted"> · ${esc(KIND_NAME[s.kind]||"")} · ${esc(s.level||"")} · ${day(s.ts)}</span>
+        </summary>
+        ${ansHtml(s, false)}
+      </details>`).join("")}</div>`;
+  document.getElementById("histClear").onclick=()=>{
+    if(!confirm("Xóa toàn bộ câu đã làm (cả hai bài dịch)?")) return;
+    clearHist(); renderHist(); updateScopeInfo();
+    const b=document.getElementById("histBtn"); if(b) b.textContent="🗂 Câu đã làm (0)";
+  };
+}
+/* ---- gọi AI lấy 3 câu cho bài dịch (dùng chung 2 chiều) ---- */
+async function fetchTransItems(area, level){
   if(!PROXY_URL){
     area.innerHTML=`<div class="card"><p class="small" style="color:var(--bad);font-weight:600">Tính năng này cần AI.</p>
       <p class="small muted">Hãy điền <code>PROXY_URL</code> trong index.html (proxy Vercel <code>/api/chinese</code>) để bật.</p></div>`;
-    return;
+    return null;
   }
   area.innerHTML=`<div class="card" style="text-align:center">
     <div class="word-han" style="font-size:34px">⏳</div>
     <p style="margin:8px 0">Đang tạo câu ${esc(level)} để luyện dịch…</p>
     <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
+  const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({task:"zh2vi", n:3, level, provider:state.settings.provider})});
+  const j=await r.json();
+  if(j.error) throw new Error(j.error);
+  const items=(j.sentences||[]).filter(s=>s&&s.zh&&s.vi).slice(0,3);
+  if(items.length===0) throw new Error("AI không trả câu nào hợp lệ");
+  return items;
+}
+function transError(err, retryFn){
+  document.getElementById("practiceArea").innerHTML=`<div class="card">
+    <p class="small" style="color:var(--bad);font-weight:600">Không tạo được câu: ${esc(err.message)}</p>
+    <button class="btn btn-primary" style="margin-top:10px" onclick="${retryFn}()">Thử lại</button></div>`;
+}
+
+/* ---- 📝 Dịch Trung → Việt: từng câu một ---- */
+async function startZhvi(){
+  session=null; transState=null; clearPractice();      // đang tải câu AI: chưa có gì để khôi phục
+  const area=document.getElementById("practiceArea");
+  const level=aiLevel();
   try{
-    const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({task:"zh2vi", n:3, level, provider:state.settings.provider})});
-    const j=await r.json();
-    if(j.error) throw new Error(j.error);
-    const items=(j.sentences||[]).filter(s=>s&&s.zh).slice(0,3);
-    if(items.length===0) throw new Error("AI không trả câu nào hợp lệ");
+    const items=await fetchTransItems(area, level);
+    if(!items) return;
     transState={mode:"zhvi", items, i:0, level, revealed:false};
     renderZhvi();
-  }catch(err){
-    area.innerHTML=`<div class="card">
-      <p class="small" style="color:var(--bad);font-weight:600">Không tạo được câu: ${esc(err.message)}</p>
-      <button class="btn btn-primary" style="margin-top:10px" onclick="startZhvi()">Thử lại</button></div>`;
-  }
+  }catch(err){ transError(err, "startZhvi"); }
 }
 function renderZhvi(){
   const t=transState; if(!t) return;
   const s=t.items[t.i];
   if(!s){ startZhvi(); return; }                        // hết 3 câu ⇒ gọi AI sinh tiếp
-  pushZhviHist(s, t.level);                             // lưu ngay khi câu được hiện ra
-  const hist=loadZhviHist();
+  pushHist(s, t.level, "zhvi");                         // lưu ngay khi câu được hiện ra
   const area=document.getElementById("practiceArea");
-  area.innerHTML=`<div class="row spread wrap" style="gap:8px">
-      <p class="status" style="margin:0">Câu ${t.i+1}/${t.items.length} · ${esc(t.level)} · tự dịch sang tiếng Việt</p>
-      <button class="btn btn-ghost btn-sm" id="zhviHistBtn">🗂 Câu đã làm (${hist.length})</button>
-    </div>
-    <div id="zhviHistBox" style="display:none;margin-top:10px"></div>
-    <div class="card" id="zhviCard" style="margin-top:10px">
+  area.innerHTML=`${histBarHtml(`Câu ${t.i+1}/${t.items.length} · ${t.level} · tự dịch sang tiếng Việt`)}
+    <div class="card" style="margin-top:10px">
       <div class="row spread" style="align-items:flex-start;gap:8px">
         <div class="word-han" style="font-size:26px;line-height:1.6;flex:1;user-select:text;-webkit-user-select:text">${esc(s.zh)}</div>
         ${speakBtn(s.zh)}
       </div>
-      <div id="zhviAns" style="display:${t.revealed?"block":"none"}">${zhviAnswerHtml(s)}</div>
+      <div id="zhviAns" style="display:${t.revealed?"block":"none"}">${ansHtml(s, false)}</div>
       <div class="row wrap" style="gap:8px;margin-top:12px">
         <button class="btn ${t.revealed?"btn-ghost":"btn-primary"} btn-sm" id="zhviReveal">${t.revealed?"🙈 Ẩn bản dịch":"👁 Xem bản dịch"}</button>
         <button class="btn ${t.revealed?"btn-primary":"btn-ghost"} btn-sm" id="zhviNext">Câu tiếp theo →</button>
       </div>
     </div>`;
+  bindHistBar();
   document.getElementById("zhviReveal").onclick=()=>{ transState.revealed=!transState.revealed; renderZhvi(); };
   document.getElementById("zhviNext").onclick=()=>{ transState.i++; transState.revealed=false; renderZhvi(); };
-  document.getElementById("zhviHistBtn").onclick=function(){
-    const box=document.getElementById("zhviHistBox");
-    if(box.style.display!=="none"){ box.style.display="none"; this.textContent=`🗂 Câu đã làm (${loadZhviHist().length})`; return; }
-    renderZhviHist(); box.style.display="block"; this.textContent="✕ Ẩn danh sách";
-  };
-  savePractice();
+  savePractice(); updateScopeInfo();
 }
-function renderZhviHist(){
-  const box=document.getElementById("zhviHistBox");
-  const hist=loadZhviHist();
-  if(!hist.length){ box.innerHTML=`<p class="small muted">Chưa có câu nào. Câu đã làm được giữ 7 ngày rồi tự xóa.</p>`; return; }
-  const day=ts=>new Date(ts).toLocaleDateString("vi-VN",{day:"2-digit",month:"2-digit"});
-  box.innerHTML=`<div class="row spread wrap" style="gap:8px;margin-bottom:6px">
-      <p class="small muted" style="margin:0">${hist.length} câu trong 7 ngày qua (câu cũ hơn tự xóa)</p>
-      <button class="btn btn-ghost btn-sm" id="zhviClear" style="color:var(--bad)">🗑 Xóa hết</button>
-    </div>
-    <div style="display:grid;gap:8px">${hist.map((s,i)=>`
-      <details class="card" style="margin:0;padding:10px 12px">
-        <summary style="cursor:pointer;list-style:none">
-          <span class="word-han" style="font-size:20px">${esc(s.zh)}</span>
-          <span class="small muted"> · ${esc(s.level||"")} · ${day(s.ts)}</span>
-        </summary>
-        ${zhviAnswerHtml(s)}
-      </details>`).join("")}</div>`;
-  document.getElementById("zhviClear").onclick=()=>{
-    if(!confirm("Xóa toàn bộ câu đã làm?")) return;
-    clearZhviHist(); renderZhviHist(); updateScopeInfo();
-    const b=document.getElementById("zhviHistBtn"); if(b) b.textContent="🗂 Câu đã làm (0)";
-  };
+
+/* ---- 📝 Dịch Việt → Trung: 3 câu cùng lúc, mỗi câu có ô gõ chữ Hán ---- */
+async function startVi2zh(){
+  session=null; transState=null; clearPractice();
+  const area=document.getElementById("practiceArea");
+  const level=aiLevel();
+  try{
+    const items=await fetchTransItems(area, level);
+    if(!items) return;
+    items.forEach(s=>pushHist(s, level, "vi2zh"));      // lưu cả 3 câu ngay khi hiện ra
+    transState={mode:"vi2zh", items, level, revealed:[], answers:[]};
+    renderVi2zh();
+  }catch(err){ transError(err, "startVi2zh"); }
+}
+function renderVi2zh(){
+  const t=transState; if(!t) return;
+  const cards=t.items.map((s,i)=>{
+    const open=!!t.revealed[i];
+    const mine=t.answers[i]||"";
+    return `<div class="card">
+      <p class="small muted" style="margin:0 0 4px">Câu ${i+1}</p>
+      <div class="meaning" style="font-size:18px;font-weight:600">${esc(s.vi)}</div>
+      ${open?"":`<input class="text" data-ans="${i}" autocomplete="off" spellcheck="false" value="${esc(mine)}"
+        placeholder="gõ câu tiếng Trung của bạn (không bắt buộc)" style="margin-top:8px;font-size:18px" />`}
+      <div id="v2z-${i}" style="display:${open?"block":"none"}">
+        ${open&&mine?`<div class="small muted" style="margin-top:10px">Bạn viết:</div>
+          <div class="word-han" style="font-size:20px;line-height:1.5;color:var(--muted)">${esc(mine)}</div>`:""}
+        ${open?`<div class="small muted" style="margin-top:10px">Đáp án:</div>`+ansHtml(s, true):""}
+      </div>
+      <button class="btn ${open?"btn-ghost":"btn-primary"} btn-sm" data-rev="${i}" style="margin-top:10px">
+        ${open?"🙈 Ẩn kết quả":"👁 Xem kết quả"}</button>
+    </div>`;
+  }).join("");
+  const area=document.getElementById("practiceArea");
+  area.innerHTML=`${histBarHtml(`3 câu ${t.level} · dịch sang tiếng Trung, bấm “Xem kết quả” từng câu`)}
+    ${cards}
+    <button class="btn btn-primary" id="v2zMore" style="margin-top:6px">↻ Tạo 3 câu khác</button>`;
+  bindHistBar();
+  area.querySelectorAll("input[data-ans]").forEach(inp=>{
+    inp.addEventListener("input",()=>{ transState.answers[+inp.dataset.ans]=inp.value; });
+    inp.addEventListener("change", savePractice);
+  });
+  area.querySelectorAll("button[data-rev]").forEach(b=>{
+    b.onclick=()=>{
+      const i=+b.dataset.rev;
+      const inp=area.querySelector(`input[data-ans="${i}"]`);
+      if(inp) transState.answers[i]=inp.value;          // giữ câu vừa gõ trước khi vẽ lại
+      transState.revealed[i]=!transState.revealed[i];
+      renderVi2zh();
+    };
+  });
+  document.getElementById("v2zMore").onclick=()=>startVi2zh();
+  savePractice(); updateScopeInfo();
 }
 
 /* ====================================================================
