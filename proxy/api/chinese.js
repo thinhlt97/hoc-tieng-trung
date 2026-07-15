@@ -265,7 +265,7 @@ export default async function handler(req, res) {
 
     if (b.task === "radical") {
       if (!b.char) return res.status(400).json({ error: "thiếu char" });
-      const raw = await call(SYS_RADICAL, promptRadical(b), 1200);
+      const raw = await call(SYS_RADICAL, promptRadical(b), 2000);
       const out = parseJson(raw);
       const components = Array.isArray(out.components)
         ? out.components
