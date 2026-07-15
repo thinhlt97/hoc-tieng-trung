@@ -52,13 +52,20 @@ header .syncbtn.dirty{background:var(--gold); border-color:var(--gold); color:#3
 /* ---------- Tabs ---------- */
 nav{
   display:flex; background:var(--card); border-bottom:1px solid var(--line);
-  position:sticky; top:54px; z-index:20; overflow-x:auto;
+  position:sticky; top:var(--headtop, 54px); z-index:20; overflow-x:auto;
 }
 nav button{
   flex:1 0 auto; background:none; border:none; padding:11px 14px; font-size:14px; font-weight:600;
   color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap;
 }
 nav button.active{color:var(--red); border-bottom-color:var(--red)}
+
+/* Ô tìm kiếm ở tab Từ vựng: dính dưới header+nav khi cuộn.
+   --stickytop do JS đặt = chiều cao thật của header + nav (đổi theo màn hình). */
+.vsearch{
+  position:sticky; top:var(--stickytop, 98px); z-index:15;
+  background:var(--paper); padding:10px 0; margin:-10px 0 2px;
+}
 
 main{max-width:760px; margin:0 auto; padding:16px 14px 90px}
 .hcell{display:inline-block; width:13px; height:13px; border-radius:3px; flex:0 0 auto}
@@ -214,9 +221,10 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
   <!-- ========================= TỪ VỰNG ========================= -->
   <section class="view" id="view-vocab">
     <h2 class="section">词汇 · Từ vựng</h2>
-    <input class="text" id="vocabSearch" placeholder="Tìm theo chữ Hán, pinyin hoặc nghĩa…" style="margin-bottom:12px" />
+    <div class="vsearch">
+      <input class="text" id="vocabSearch" placeholder="Tìm theo chữ Hán, pinyin hoặc nghĩa…" />
+    </div>
     <div class="chips" id="vocabLevels"></div>
-    <div class="chips" id="vocabCats"></div>
     <p class="status" id="vocabCount"></p>
     <div id="vocabList"></div>
   </section>
@@ -842,7 +850,7 @@ function aiBlock(x){
 /* ====================================================================
  * TỪ VỰNG
  * ==================================================================== */
-let vFilter={level:"all", cat:"all", q:""};
+let vFilter={level:"all", q:""};
 document.getElementById("vocabSearch").addEventListener("input",e=>{
   // Gõ số thanh điệu -> tự đổi thành dấu ngay trong ô (như phần Nghe → gõ pinyin): ni3 hao3 => nǐ hǎo
   const conv=pyNumToTone(e.target.value);
@@ -856,16 +864,10 @@ function renderVocab(){
   lvWrap.append(chip("Tất cả cấp", vFilter.level==="all", ()=>{vFilter.level="all";renderVocab();}));
   levels.forEach(l=> lvWrap.append(chip("HSK"+l, vFilter.level===l, ()=>{vFilter.level=l;renderVocab();})));
 
-  const cats=[...new Set(WORDS.map(w=>w.cat))].sort();
-  const catWrap=document.getElementById("vocabCats"); catWrap.innerHTML="";
-  catWrap.append(chip("Mọi chủ đề", vFilter.cat==="all", ()=>{vFilter.cat="all";renderVocab();}));
-  cats.forEach(c=> catWrap.append(chip(c, vFilter.cat===c, ()=>{vFilter.cat=c;renderVocab();})));
-
   const q=vFilter.q.toLowerCase();
   const qp=normPinyin(q);   // pinyin bỏ dấu thanh → gõ có dấu hay không đều khớp (như phần Nghe→gõ pinyin)
   const list=WORDS.filter(w=>
     (vFilter.level==="all"||w.lv===vFilter.level) &&
-    (vFilter.cat==="all"||w.cat===vFilter.cat) &&
     (!q || w.w.includes(q) || (qp && normPinyin(w.p).includes(qp)) || w.vi.toLowerCase().includes(q)
         || (w.hv && w.hv.toLowerCase().includes(q)))   // tìm được cả bằng âm Hán Việt (vd: "học sinh")
   );
@@ -1506,6 +1508,66 @@ function typeCard(x){
     ${session && session.i>0 ? `<div style="margin-top:10px"><button class="btn btn-ghost" id="pyRevBtn" style="font-size:13px;padding:4px 12px">◀ Xem lại từ trước</button></div>` : ""}
   </div>`;
 }
+/* ---- 🧩 Giải thích bộ thủ 1 chữ Hán (AI, bấm mới gọi — tiết kiệm quota) ---- */
+const RADCACHE = {};   // cache theo chữ Hán (bộ thủ tĩnh, không cần gọi lại)
+function hanCharsUniq(w){
+  const seen=new Set(), out=[];
+  for(const ch of String(w||"")){ if(/[㐀-鿿]/.test(ch) && !seen.has(ch)){ seen.add(ch); out.push(ch); } }
+  return out;
+}
+function radicalSectionHtml(x){
+  if(!PROXY_URL) return "";                     // không có AI thì ẩn hẳn
+  const chars=hanCharsUniq(x.w);
+  if(!chars.length) return "";
+  const btns=chars.map(c=>`<button class="btn btn-ghost btn-sm rad-btn" data-c="${c}">🧩 ${c}</button>`).join("");
+  return `<div class="radbox" style="margin-top:12px;border-top:1px dashed var(--line);padding-top:10px">
+      <div class="small muted" style="margin-bottom:6px">🧩 Bộ thủ &amp; mẹo nhớ — bấm từng chữ:</div>
+      <div class="row wrap" style="justify-content:center;gap:6px">${btns}</div>
+      <div class="rad-out" style="margin-top:8px;text-align:left"></div>
+    </div>`;
+}
+function radCardHtml(c, data){
+  const comps=(data.components||[]).map(k=>`<li><b class="han">${esc(k.part||"")}</b>
+     ${k.name?`<b>${esc(k.name)}</b>`:""}${k.meaning?` — ${esc(k.meaning)}`:""}</li>`).join("");
+  return `<div class="card rad-card" data-c="${esc(c)}" style="margin-top:8px;text-align:left">
+      <div class="row" style="gap:8px;align-items:center">
+        <span class="word-han" style="font-size:26px">${esc(c)}</span>
+        <b class="small muted">Bộ thủ &amp; cấu tạo</b>
+      </div>
+      ${comps?`<ul style="margin:8px 0 0;padding-left:20px;line-height:1.6">${comps}</ul>`:""}
+      ${data.mnemonic?`<div style="margin-top:8px"><b>🧠 Mẹo nhớ:</b> ${esc(data.mnemonic)}</div>`:""}
+    </div>`;
+}
+async function fetchRadical(c, x){
+  if(RADCACHE[c]) return RADCACHE[c];
+  const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({task:"radical", char:c, word:x.w, pinyin:x.p, meaning:x.vi,
+      provider:state.settings.provider})});
+  const j=await r.json();
+  if(!r.ok) throw new Error(j.error||("lỗi "+r.status));
+  RADCACHE[c]=j; return j;
+}
+/* Gắn sự kiện cho các nút bộ thủ trong `container` (đã chứa .radbox). */
+function bindRadical(container, x){
+  const box=container.querySelector(".radbox"); if(!box) return;
+  const out=box.querySelector(".rad-out");
+  box.querySelectorAll(".rad-btn").forEach(btn=>{
+    btn.onclick=async()=>{
+      const c=btn.dataset.c;
+      const card=out.querySelector(`.rad-card[data-c="${c}"]`);
+      if(card){ card.style.display = card.style.display==="none" ? "" : "none"; return; }  // đã có → ẩn/hiện
+      btn.disabled=true; const lbl=btn.textContent; btn.textContent="🧩 "+c+" …";
+      try{
+        const data=await fetchRadical(c, x);
+        out.insertAdjacentHTML("beforeend", radCardHtml(c, data));
+      }catch(err){
+        out.insertAdjacentHTML("beforeend", `<div class="card rad-card" data-c="${esc(c)}" style="margin-top:8px;border-color:var(--bad)">
+          <b style="color:var(--bad)">Không tạo được giải thích cho 「${esc(c)}」.</b>
+          <span class="small muted">${esc(String((err&&err.message)||err))}</span></div>`);
+      }finally{ btn.disabled=false; btn.textContent=lbl; }
+    };
+  });
+}
 function bindTypeCard(x, restore){
   const inp=document.getElementById("pyInput");
   const fb=document.getElementById("pyFeedback");
@@ -1553,6 +1615,9 @@ function bindTypeCard(x, restore){
       }
     }
     savePractice();
+    // 🧩 nút giải thích bộ thủ cho từng chữ Hán (hiện ở cả trường hợp đúng lẫn sai)
+    const radHtml=radicalSectionHtml(x);
+    if(radHtml){ fb.appendChild(el(radHtml)); bindRadical(fb, x); }
     if(ok){ fb.appendChild(nextBtn()); return; }
     // SAI: hiện đáp án rồi buộc gõ lại cho đúng mới được sang câu khác
     const retry=el(`<div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)">
@@ -1606,11 +1671,13 @@ function showTypeReview(idx, resume){
       </div>
       <div class="pinyin" style="font-size:18px">${x.p}${hvChip(x)}</div>
       <div class="meaning">${esc(x.vi)}</div>
+      ${radicalSectionHtml(x)}
       <div class="row wrap" style="justify-content:center;gap:8px;margin-top:16px">
         <button class="btn btn-ghost" id="revPrev" ${idx<=0?"disabled":""}>◀ Từ trước</button>
         <button class="btn btn-primary" id="revNext">${lastReviewable?"↩ Về câu đang làm":"Từ sau ▶"}</button>
       </div>
     </div>`;
+  bindRadical(area, x);
   document.getElementById("revPrev").onclick=()=>{ if(idx>0) showTypeReview(idx-1, resume); };
   document.getElementById("revNext").onclick=()=>{
     if(idx>=session.i-1) nextCard(resume);   // quay về câu đang làm, khôi phục phần đã gõ
@@ -2407,6 +2474,18 @@ updateSyncBtn();
 syncLevelChips();
 updateScopeInfo();
 renderToday();
+
+// Ô tìm kiếm tab Từ vựng dính ngay dưới header + nav (chiều cao thay đổi theo màn hình)
+function setStickyTop(){
+  const h=document.querySelector("header"), n=document.querySelector("nav");
+  if(!h||!n) return;
+  const r=document.documentElement.style;
+  r.setProperty("--headtop", h.offsetHeight+"px");
+  r.setProperty("--stickytop",(h.offsetHeight+n.offsetHeight-1)+"px");
+}
+setStickyTop();
+window.addEventListener("resize",setStickyTop);
+window.addEventListener("orientationchange",setStickyTop);
 // tự kéo dữ liệu nếu đã có mã + máy chủ
 if(VOCAB_URL && state.code){ syncPull(); }
 

@@ -19,6 +19,9 @@
  * POST { task:"sentences", level:"HSK1", n:5, provider:"gemini"|"groq" }
  *  ←  { sentences:[ { zh, pinyin, vi, vocab:[{ w, p, vi }] } ] }
  *
+ * POST { task:"radical", char, word, pinyin, meaning, provider:"gemini"|"groq" }
+ *  ←  { char, components:[ { part, name, meaning } ], mnemonic }
+ *
  * POST { task:"grammar", title, formula, explain, examples:[{zh}], level:"HSK2", n:5, provider }
  *  ←  { exercises:[
  *        { type:"mc",        stem, options:[4], correct:0..3, pinyin, vi, explain },
@@ -124,6 +127,28 @@ Trả về DUY NHẤT JSON hợp lệ dạng:
 {"sentences":[{"zh":"...","pinyin":"...","vi":"...","tokens":[{"zh":"我","p":"wǒ"}],
   "vocab":[{"w":"...","p":"...","vi":"..."}],"grammar":"..."}]}
 Không thêm chữ nào ngoài JSON.`;
+
+/* ---------- task: radical (giải thích bộ thủ của 1 chữ Hán) ----------
+ * Cho 1 chữ Hán (kèm ngữ cảnh là từ chứa nó) → phân tích bộ thủ/thành phần cấu tạo
+ * + mẹo nhớ, để người học liên hệ hình chữ với nghĩa. Bấm mới gọi (tiết kiệm API). */
+const SYS_RADICAL = `Bạn là giáo viên tiếng Trung cho người Việt, giỏi chiết tự chữ Hán.
+Cho MỘT chữ Hán giản thể (kèm ngữ cảnh là từ chứa nó), hãy phân tích để người học DỄ NHỚ:
+- "components": các BỘ THỦ / thành phần cấu tạo nên chữ đó (theo tự dạng giản thể), THEO thứ tự,
+  mỗi thành phần là {"part":"bộ/thành phần (chữ Hán)","name":"tên bộ thủ tiếng Việt (vd: bộ Thủy 氵, bộ Nhân 亻)","meaning":"nghĩa/biểu ý của thành phần đó"}.
+  Nếu là thành phần biểu ÂM (gợi cách đọc) thì nói rõ trong "meaning".
+- "mnemonic": 2-4 câu TIẾNG VIỆT liên kết các thành phần với NGHĨA của chữ và của từ chứa nó,
+  tạo mẹo/câu chuyện dễ nhớ. Chính xác, KHÔNG bịa nghĩa sai; nếu chữ đơn giản/không chiết tự được thì nói thẳng.
+Trả về DUY NHẤT JSON hợp lệ:
+{"char":"chữ","components":[{"part":"...","name":"...","meaning":"..."}],"mnemonic":"..."}
+Không thêm chữ nào ngoài JSON.`;
+
+function promptRadical(b) {
+  const c = String(b.char || "").trim();
+  const ctx = b.word && b.word !== c
+    ? ` (nằm trong từ 「${b.word}」${b.meaning ? " = " + b.meaning : ""})`
+    : (b.meaning ? ` (nghĩa: ${b.meaning})` : "");
+  return `Chữ Hán: ${c}${b.pinyin ? " đọc là " + b.pinyin : ""}${ctx}. Phân tích bộ thủ và tạo mẹo nhớ.`;
+}
 
 /* ---------- task: grammar (bài tập cho 1 điểm ngữ pháp) ---------- */
 const SYS_GRAMMAR = `Bạn là giáo viên tiếng Trung cho người Việt học theo giáo trình HSK.
@@ -236,6 +261,22 @@ export default async function handler(req, res) {
                Number.isInteger(q.correct) && q.correct >= 0 && q.correct <= 3
       );
       return res.status(200).json({ questions });
+    }
+
+    if (b.task === "radical") {
+      if (!b.char) return res.status(400).json({ error: "thiếu char" });
+      const raw = await call(SYS_RADICAL, promptRadical(b), 1200);
+      const out = parseJson(raw);
+      const components = Array.isArray(out.components)
+        ? out.components
+            .filter((c) => c && (c.part || c.name))
+            .map((c) => ({ part: String(c.part || ""), name: String(c.name || ""), meaning: String(c.meaning || "") }))
+        : [];
+      return res.status(200).json({
+        char: String(out.char || b.char),
+        components,
+        mnemonic: String(out.mnemonic || ""),
+      });
     }
 
     if (b.task === "grammar") {
