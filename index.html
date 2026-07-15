@@ -59,6 +59,11 @@ nav button{
   color:var(--muted); border-bottom:3px solid transparent; white-space:nowrap;
 }
 nav button.active{color:var(--red); border-bottom-color:var(--red)}
+nav button{ touch-action:pan-x; -webkit-user-select:none; user-select:none; cursor:pointer }
+nav button.tab-drag{ background:var(--red); color:#fff; border-bottom-color:var(--red);
+  border-radius:8px 8px 0 0; box-shadow:0 3px 10px rgba(0,0,0,.25); transform:scale(1.04); cursor:grabbing }
+nav.tab-reordering{ cursor:grabbing }
+nav.tab-reordering button{ transition:transform .12s ease }
 
 /* Ô tìm kiếm ở tab Từ vựng: dính dưới header+nav khi cuộn.
    --stickytop do JS đặt = chiều cao thật của header + nav (đổi theo màn hình). */
@@ -427,7 +432,8 @@ function defaultState(){
     stats: { streak:0, lastDay:"", reviewsToday:0, dayKey:"", history:{} },
     settings: { dailyNew:15, provider:"gemini", rate:0.9, voiceURI:"", aiLevel:"HSK1",
       ratios: { typepy:[80,15,5], exam:[70,20,10] },      // % bốc từ Nhóm 1/2/3 theo kiểu bài
-      score:  { plus:1, minus:0.5, g2:5, g3:10 } },       // quy tắc điểm bài "Nghe → gõ pinyin"
+      score:  { plus:1, minus:0.5, g2:5, g3:10 },         // quy tắc điểm bài "Nghe → gõ pinyin"
+      tabOrder: [] },                                     // thứ tự tab do người dùng kéo (mảng data-v)
     updatedAt: 0,
   };
 }
@@ -705,6 +711,7 @@ let curView="today";
 const scrollMem={};
 document.getElementById("tabs").addEventListener("click",e=>{
   const b=e.target.closest("button[data-v]"); if(!b) return;
+  if(Date.now()-lastReorderTs < 350) return;   // vừa kéo đổi thứ tự xong ⇒ đừng chuyển tab
   const v=b.dataset.v;
   if(v===curView){ window.scrollTo({top:0,behavior:"smooth"}); return; }
   scrollMem[curView]=window.scrollY;   // nhớ vị trí tab đang rời
@@ -723,6 +730,82 @@ function render(v){
   if(v==="practice") renderPracticeHome();
   if(v==="progress") renderProgress();
   if(v==="settings") renderSettings();
+}
+
+/* ====================================================================
+ * KÉO ĐỔI THỨ TỰ TAB (giữ rồi kéo — chạy cả chuột lẫn cảm ứng)
+ *   Thứ tự lưu ở state.settings.tabOrder (mảng data-v) ⇒ đồng bộ đa thiết bị.
+ * ==================================================================== */
+let lastReorderTs=0;   // mốc lần kéo gần nhất để chặn "chuyển tab" ngay sau khi thả
+/* sắp lại DOM nav theo thứ tự đã lưu; tab mới (chưa có trong thứ tự) dồn về cuối */
+function applyTabOrder(){
+  const nav=document.getElementById("tabs"); if(!nav) return;
+  const order=(state.settings&&state.settings.tabOrder)||[];
+  if(!order.length) return;
+  const btns=[...nav.querySelectorAll("button[data-v]")];
+  const by={}; btns.forEach(b=>by[b.dataset.v]=b);
+  order.forEach(v=>{ if(by[v]){ nav.appendChild(by[v]); delete by[v]; } });   // theo thứ tự đã lưu
+  btns.forEach(b=>{ if(by[b.dataset.v]) nav.appendChild(b); });               // tab còn lại (mới) ra cuối
+}
+function saveTabOrder(){
+  const nav=document.getElementById("tabs");
+  state.settings.tabOrder=[...nav.querySelectorAll("button[data-v]")].map(b=>b.dataset.v);
+  save(); markDirty();
+}
+function initTabDrag(){
+  const nav=document.getElementById("tabs");
+  let st=null;   // {btn, id, x0, y0, timer, dragging, reordered}
+  function cleanup(){
+    if(!st) return;
+    clearTimeout(st.timer);
+    if(st.dragging){
+      st.btn.classList.remove("tab-drag");
+      nav.classList.remove("tab-reordering");
+      try{ nav.releasePointerCapture(st.id); }catch(e){}
+      if(st.reordered){ lastReorderTs=Date.now(); saveTabOrder(); toast("Đã đổi thứ tự tab"); }
+    }
+    st=null;
+  }
+  function startDrag(){
+    if(!st) return;
+    st.dragging=true;
+    try{ nav.setPointerCapture(st.id); }catch(e){}
+    st.btn.classList.add("tab-drag");
+    nav.classList.add("tab-reordering");
+    if(navigator.vibrate) try{ navigator.vibrate(15); }catch(e){}   // báo rung khi bắt đầu kéo (điện thoại)
+  }
+  nav.addEventListener("pointerdown",e=>{
+    const btn=e.target.closest("button[data-v]"); if(!btn) return;
+    if(e.pointerType==="mouse" && e.button!==0) return;
+    cleanup();
+    st={btn, id:e.pointerId, x0:e.clientX, y0:e.clientY, dragging:false, reordered:false,
+        timer:setTimeout(startDrag, 300)};   // giữ ~0,3s mới vào chế độ kéo (tap nhanh vẫn chuyển tab)
+  });
+  nav.addEventListener("pointermove",e=>{
+    if(!st || e.pointerId!==st.id) return;
+    if(!st.dragging){
+      // di chuyển nhiều TRƯỚC khi giữ đủ lâu ⇒ là cuộn/tap, huỷ ý định kéo
+      if(Math.abs(e.clientX-st.x0)>8 || Math.abs(e.clientY-st.y0)>8) cleanup();
+      return;
+    }
+    e.preventDefault();
+    const x=e.clientX;
+    const sibs=[...nav.querySelectorAll("button[data-v]")].filter(b=>b!==st.btn);
+    let target=null;   // chèn TRƯỚC nút này (null ⇒ về cuối)
+    for(const s of sibs){
+      const r=s.getBoundingClientRect();
+      if(x < r.left + r.width/2){ target=s; break; }
+    }
+    if(target){
+      if(st.btn.nextSibling!==target){ nav.insertBefore(st.btn, target); st.reordered=true; }
+    }else if(nav.lastElementChild!==st.btn){
+      nav.appendChild(st.btn); st.reordered=true;
+    }
+  });
+  nav.addEventListener("pointerup",cleanup);
+  nav.addEventListener("pointercancel",cleanup);
+  // Chặn cuộn ngang của thanh nav khi đang kéo (touch-action:pan-x không đủ trên cảm ứng).
+  nav.addEventListener("touchmove",e=>{ if(st && st.dragging) e.preventDefault(); }, {passive:false});
 }
 
 /* ====================================================================
@@ -2404,7 +2487,7 @@ async function syncPull(){
     if(j.data && j.data.progress){
       state = migrateProgress(mergeStates(state, j.data));
       save(); dirty=false; updateSyncBtn(); setSync("Đã kéo & gộp tiến độ");
-      toast("Đã đồng bộ từ máy chủ"); renderSettings();
+      toast("Đã đồng bộ từ máy chủ"); applyTabOrder(); renderSettings();
     }else{ setSync("Máy chủ chưa có dữ liệu cho mã này"); }
   }catch(e){ setSync("Lỗi: "+e.message); toast("Lỗi đồng bộ"); }
 }
@@ -2440,7 +2523,7 @@ document.getElementById("importBtn").onclick=()=>document.getElementById("import
 document.getElementById("importFile").addEventListener("change",e=>{
   const f=e.target.files[0]; if(!f) return;
   const rd=new FileReader();
-  rd.onload=()=>{ try{ const d=JSON.parse(rd.result); state=migrateProgress(mergeStates(state,d)); save(); toast("Đã nhập & gộp"); renderSettings();}catch(err){toast("File không hợp lệ");} };
+  rd.onload=()=>{ try{ const d=JSON.parse(rd.result); state=migrateProgress(mergeStates(state,d)); save(); toast("Đã nhập & gộp"); applyTabOrder(); renderSettings();}catch(err){toast("File không hợp lệ");} };
   rd.readAsText(f);
 });
 document.getElementById("resetBtn").onclick=async()=>{
@@ -2473,6 +2556,8 @@ function chip(label, active, onclick){
 updateSyncBtn();
 syncLevelChips();
 updateScopeInfo();
+applyTabOrder();
+initTabDrag();
 renderToday();
 
 // Ô tìm kiếm tab Từ vựng dính ngay dưới header + nav (chiều cao thay đổi theo màn hình)
