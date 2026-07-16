@@ -1466,7 +1466,7 @@ function snapshotPractice(){
       return {mode:"vi2zh", items:t.items, level:t.level, revealed:t.revealed||[], answers:t.answers||[]};
     if(t.mode==="sentpy")
       return {mode:"sentpy", items:t.items, i:t.i, level:t.level, value:t.value||"", checked:!!t.checked};
-    return {mode:"zhvi", items:t.items, i:t.i, level:t.level, revealed:!!t.revealed};
+    return {mode:"zhvi", items:t.items, i:t.i, level:t.level, revealed:!!t.revealed, answers:t.answers||[]};
   }
   if(!session || session.i>=session.total) return null;
   const b={mode:session.mode, i:session.i, correct:session.correct, total:session.total, ai:!!session.ai};
@@ -1505,7 +1505,7 @@ function resumePractice(){
       transState={mode:"vi2zh", items:b.items, level:b.level||aiLevel(), revealed:b.revealed||[], answers:b.answers||[]};
       renderVi2zh();
     }else{
-      transState={mode:"zhvi", items:b.items, i:b.i||0, level:b.level||aiLevel(), revealed:!!b.revealed};
+      transState={mode:"zhvi", items:b.items, i:b.i||0, level:b.level||aiLevel(), revealed:!!b.revealed, answers:b.answers||[]};
       renderZhvi();
     }
     return;
@@ -2084,30 +2084,70 @@ async function startZhvi(){
   try{
     const items=await fetchTransItems(area, level);
     if(!items) return;
-    transState={mode:"zhvi", items, i:0, level, revealed:false};
+    transState={mode:"zhvi", items, i:0, level, revealed:false, answers:[]};
     renderZhvi();
   }catch(err){ transError(err, "startZhvi"); }
 }
 function renderZhvi(){
   const t=transState; if(!t) return;
+  if(!t.answers) t.answers=[];                          // tương thích bài dở cũ (chưa có pinyin)
   const s=t.items[t.i];
   if(!s){ startZhvi(); return; }                        // hết 3 câu ⇒ gọi AI sinh tiếp
   pushHist(s, t.level, "zhvi");                         // lưu ngay khi câu được hiện ra
   const area=document.getElementById("practiceArea");
+  const mine=t.answers[t.i]||"";
+  const rev=t.revealed;
+  // Khi đã xem đáp án: chấm pinyin đã gõ (chặt dấu thanh; báo riêng "đúng âm sai dấu")
+  let pyCheck="";
+  if(rev){
+    const ansP=sentPinyin(s);
+    if(!mine.trim()){
+      pyCheck=`<div class="small muted">Bạn chưa gõ pinyin cho câu này.</div>`;
+    }else{
+      const ok  = normSentStrict(mine)===normSentStrict(ansP);
+      const near= !ok && normPinyin(mine)===normPinyin(ansP);
+      const verdict= ok ? "✓ Pinyin chính xác!" : (near ? "✗ Đúng âm nhưng sai dấu thanh" : "✗ Pinyin chưa đúng");
+      pyCheck=`<div style="font-weight:700;color:${ok?'var(--green)':'var(--bad)'}">${verdict}</div>
+        <div class="small muted" style="margin-top:2px">Bạn gõ: <b>${esc(mine)}</b></div>`;
+    }
+  }
   area.innerHTML=`${histBarHtml(`Câu ${t.i+1}/${t.items.length} · ${t.level} · tự dịch sang tiếng Việt`)}
     <div class="card" style="margin-top:10px">
       <div class="row spread" style="align-items:flex-start;gap:8px">
         <div class="word-han" style="font-size:26px;line-height:1.6;flex:1;user-select:text;-webkit-user-select:text">${esc(s.zh)}</div>
         ${speakBtn(s.zh)}
       </div>
-      <div id="zhviAns" style="display:${t.revealed?"block":"none"}">${ansHtml(s, false)}</div>
+      <input class="text" id="zhviPy" autocomplete="off" autocapitalize="off" spellcheck="false"
+        value="${esc(mine)}" ${rev?"disabled":""}
+        placeholder="gõ pinyin cả câu — số 1–4 sau vần để có dấu (vd: wo3 xiang3 xue2)"
+        style="margin-top:10px;font-size:17px" />
+      <div id="zhviAns" style="display:${rev?"block":"none"}">
+        ${pyCheck}
+        <div class="small muted" style="margin-top:10px">Bản dịch &amp; giải thích:</div>
+        ${ansHtml(s, false)}
+      </div>
       <div class="row wrap" style="gap:8px;margin-top:12px">
-        <button class="btn ${t.revealed?"btn-ghost":"btn-primary"} btn-sm" id="zhviReveal">${t.revealed?"🙈 Ẩn bản dịch":"👁 Xem bản dịch"}</button>
-        <button class="btn ${t.revealed?"btn-primary":"btn-ghost"} btn-sm" id="zhviNext">Câu tiếp theo →</button>
+        <button class="btn ${rev?"btn-ghost":"btn-primary"} btn-sm" id="zhviReveal">${rev?"🙈 Ẩn bản dịch":"👁 Xem bản dịch"}</button>
+        <button class="btn ${rev?"btn-primary":"btn-ghost"} btn-sm" id="zhviNext">Câu tiếp theo →</button>
       </div>
     </div>`;
   bindHistBar();
-  document.getElementById("zhviReveal").onclick=()=>{ transState.revealed=!transState.revealed; renderZhvi(); };
+  const py=document.getElementById("zhviPy");
+  if(py){
+    py.addEventListener("input",()=>{
+      const conv=pyNumToTone(py.value);
+      if(conv!==py.value) py.value=conv;
+      transState.answers[transState.i]=py.value;
+    });
+    py.addEventListener("change", savePractice);
+    py.addEventListener("keydown",e=>{ if(e.key==="Enter" && !rev) document.getElementById("zhviReveal").click(); });
+    if(!rev) setTimeout(()=>py.focus(), 150);
+  }
+  document.getElementById("zhviReveal").onclick=()=>{
+    const pin=document.getElementById("zhviPy");
+    if(pin) transState.answers[transState.i]=pin.value;  // giữ pinyin đang gõ trước khi vẽ lại
+    transState.revealed=!transState.revealed; renderZhvi();
+  };
   document.getElementById("zhviNext").onclick=()=>{ transState.i++; transState.revealed=false; renderZhvi(); };
   savePractice(); updateScopeInfo();
 }
