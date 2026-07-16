@@ -653,6 +653,42 @@ function speakLocal(text, rate){
  * ==================================================================== */
 function el(html){ const t=document.createElement("template"); t.innerHTML=html.trim(); return t.content.firstChild; }
 function esc(s){ return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+/* Gọi proxy AI (POST JSON) có TIMEOUT + tự THỬ LẠI khi lỗi tạm thời
+   (lỗi mạng / quá thời gian chờ / 429 / 5xx). Gemini đôi khi phản hồi 8-15s hoặc
+   chớp mạng một nhịp -> fetch trần bị reject "NetworkError". Helper này thử lại vài
+   lần với thời gian nghỉ tăng dần rồi mới báo lỗi. Trả JSON đã parse, hoặc ném Error
+   có message tiếng Việt rõ ràng. Lỗi ứng dụng (4xx có {error}, j.error) KHÔNG thử lại. */
+async function fetchProxy(payload, {tries=3, timeout=30000}={}){
+  let lastErr;
+  for(let attempt=0; attempt<tries; attempt++){
+    if(attempt>0) await new Promise(r=>setTimeout(r, 600*attempt + Math.random()*400));
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(), timeout);
+    try{
+      const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(payload), signal:ctrl.signal});
+      clearTimeout(timer);
+      let j=null; try{ j=await r.json(); }catch(_){}
+      if(!r.ok){
+        const msg=(j&&j.error)||("máy chủ báo lỗi "+r.status);
+        if((r.status===429||r.status>=500) && attempt<tries-1){ lastErr=new Error(msg); continue; }
+        throw new Error(msg);
+      }
+      if(j&&j.error) throw new Error(j.error);
+      return j||{};
+    }catch(err){
+      clearTimeout(timer);
+      // AbortError = quá thời gian chờ; TypeError = lỗi mạng (NetworkError) -> thử lại
+      const transient = err && (err.name==="AbortError" || err instanceof TypeError);
+      lastErr = new Error(err && err.name==="AbortError"
+        ? "Quá thời gian chờ — AI phản hồi chậm, thử lại nhé"
+        : (err && err.message) || String(err));
+      if(transient && attempt<tries-1) continue;
+      throw lastErr;
+    }
+  }
+  throw lastErr || new Error("Không gọi được AI");
+}
 let toastT;
 function toast(msg){
   const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
@@ -917,10 +953,7 @@ function aiBlock(x){
     const body=d.querySelector(".body");
     if(!PROXY_URL){ body.innerHTML=`<p class="small muted">Chưa cấu hình AI. Điền <code>PROXY_URL</code> trong index.html để bật câu ví dụ.</p>`; return; }
     try{
-      const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({task:"example",word:x.w,pinyin:x.p,meaning:x.vi,provider:state.settings.provider})});
-      const j=await r.json();
-      if(j.error) throw new Error(j.error);
+      const j=await fetchProxy({task:"example",word:x.w,pinyin:x.p,meaning:x.vi,provider:state.settings.provider});
       body.innerHTML=(j.examples||[]).map(e=>`<div class="ai-ex">
         <div class="zh">${esc(e.zh)} ${speakBtn(e.zh)}</div>
         <div class="pinyin small">${esc(e.pinyin||"")}</div>
@@ -1127,12 +1160,9 @@ async function startGrammarEx(g){
     <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
   area.scrollIntoView({block:"start",behavior:"smooth"});
   try{
-    const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({task:"grammar", n:5, provider:state.settings.provider,
-        level:"HSK"+g.lv, title:g.title, formula:g.formula, explain:g.explain,
-        examples:(g.examples||[]).map(e=>({zh:e.zh}))})});
-    const j=await r.json();
-    if(j.error) throw new Error(j.error);
+    const j=await fetchProxy({task:"grammar", n:5, provider:state.settings.provider,
+      level:"HSK"+g.lv, title:g.title, formula:g.formula, explain:g.explain,
+      examples:(g.examples||[]).map(e=>({zh:e.zh}))});
     const items=(j.exercises||[]).filter(e=>e&&e.type).slice(0,5);
     if(items.length===0) throw new Error("AI không trả bài tập hợp lệ");
     clearGrammarEx();                     // bỏ bài cũ trước khi lưu bài mới
@@ -1623,32 +1653,34 @@ function radCardHtml(c, data){
 }
 async function fetchRadical(c, x){
   if(RADCACHE[c]) return RADCACHE[c];
-  const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({task:"radical", char:c, word:x.w, pinyin:x.p, meaning:x.vi,
-      provider:state.settings.provider})});
-  const j=await r.json();
-  if(!r.ok) throw new Error(j.error||("lỗi "+r.status));
+  const j=await fetchProxy({task:"radical", char:c, word:x.w, pinyin:x.p, meaning:x.vi,
+    provider:state.settings.provider});
   RADCACHE[c]=j; return j;
 }
 /* Gắn sự kiện cho các nút bộ thủ trong `container` (đã chứa .radbox). */
 function bindRadical(container, x){
   const box=container.querySelector(".radbox"); if(!box) return;
   const out=box.querySelector(".rad-out");
+  async function load(c, btn){
+    // Chỉ toggle thẻ THÀNH CÔNG; thẻ lỗi (nếu có) thì bỏ đi để gọi lại cho tươi.
+    const good=out.querySelector(`.rad-card:not(.rad-err)[data-c="${c}"]`);
+    if(good){ good.style.display = good.style.display==="none" ? "" : "none"; return; }
+    out.querySelectorAll(`.rad-card.rad-err[data-c="${c}"]`).forEach(e=>e.remove());
+    btn.disabled=true; const lbl=btn.textContent; btn.textContent="🧩 "+c+" …";
+    try{
+      const data=await fetchRadical(c, x);
+      out.insertAdjacentHTML("beforeend", radCardHtml(c, data));
+    }catch(err){
+      const errCard=el(`<div class="card rad-card rad-err" data-c="${esc(c)}" style="margin-top:8px;border-color:var(--bad)">
+        <b style="color:var(--bad)">Không tạo được giải thích cho 「${esc(c)}」.</b>
+        <div class="small muted" style="margin-top:4px">${esc(String((err&&err.message)||err))}</div>
+        <button class="btn btn-ghost btn-sm rad-retry" style="margin-top:8px">↻ Thử lại</button></div>`);
+      errCard.querySelector(".rad-retry").onclick=()=>load(c, btn);
+      out.appendChild(errCard);
+    }finally{ btn.disabled=false; btn.textContent=lbl; }
+  }
   box.querySelectorAll(".rad-btn").forEach(btn=>{
-    btn.onclick=async()=>{
-      const c=btn.dataset.c;
-      const card=out.querySelector(`.rad-card[data-c="${c}"]`);
-      if(card){ card.style.display = card.style.display==="none" ? "" : "none"; return; }  // đã có → ẩn/hiện
-      btn.disabled=true; const lbl=btn.textContent; btn.textContent="🧩 "+c+" …";
-      try{
-        const data=await fetchRadical(c, x);
-        out.insertAdjacentHTML("beforeend", radCardHtml(c, data));
-      }catch(err){
-        out.insertAdjacentHTML("beforeend", `<div class="card rad-card" data-c="${esc(c)}" style="margin-top:8px;border-color:var(--bad)">
-          <b style="color:var(--bad)">Không tạo được giải thích cho 「${esc(c)}」.</b>
-          <span class="small muted">${esc(String((err&&err.message)||err))}</span></div>`);
-      }finally{ btn.disabled=false; btn.textContent=lbl; }
-    };
+    btn.onclick=()=>load(btn.dataset.c, btn);
   });
 }
 function bindTypeCard(x, restore){
@@ -1845,11 +1877,8 @@ async function startExam(){
     <p style="margin:8px 0">Đang tạo ${want} câu hỏi bằng tiếng Trung…</p>
     <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
   try{
-    const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({task:"quiz", n:want, provider:state.settings.provider,
-        words:pick.map(w=>({w:w.w,p:w.p,vi:w.vi,pos:w.pos}))})});
-    const j=await r.json();
-    if(j.error) throw new Error(j.error);
+    const j=await fetchProxy({task:"quiz", n:want, provider:state.settings.provider,
+      words:pick.map(w=>({w:w.w,p:w.p,vi:w.vi,pos:w.pos}))});
     let qs=(j.questions||[]).filter(q=>q&&Array.isArray(q.options)&&q.options.length===4
       && Number.isInteger(q.correct) && q.correct>=0 && q.correct<=3 && q.stem);
     if(qs.length===0) throw new Error("AI không trả câu hỏi hợp lệ");
@@ -2036,10 +2065,7 @@ async function fetchTransItems(area, level, task){
     <div class="word-han" style="font-size:34px">⏳</div>
     <p style="margin:8px 0">Đang tạo câu ${esc(level)} để luyện dịch…</p>
     <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
-  const r=await fetch(PROXY_URL,{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({task:task||"zh2vi", n:3, level, provider:state.settings.provider})});
-  const j=await r.json();
-  if(j.error) throw new Error(j.error);
+  const j=await fetchProxy({task:task||"zh2vi", n:3, level, provider:state.settings.provider});
   const items=(j.sentences||[]).filter(s=>s&&s.zh&&s.vi).slice(0,3);
   if(items.length===0) throw new Error("AI không trả câu nào hợp lệ");
   return items;
