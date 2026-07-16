@@ -130,6 +130,14 @@ POST ?code=MA { "data":{} }← { "ok": true }
 ```
 Lỗi luôn trả `{ "error":"..." }` kèm header CORS.
 
+**Provider `"geminipro"` (nút “🚀 Dùng AI Pro”):** mọi task nhận thêm giá trị
+`provider:"geminipro"` — dùng key Gemini **trả phí** `GEMINI_PRO_API_KEY` trên Vercel
+(cùng model `gemini-2.5-flash`, chỉ khác API key → quota cao hơn). Thiếu key pro ⇒ rơi
+về `GEMINI_API_KEY` thường. Frontend chỉ gửi provider này khi bấm nút “Dùng AI Pro” hiện
+ra lúc **lỗi** ở các chỗ dùng AI (câu ví dụ, bộ thủ, trắc nghiệm, ngữ pháp, 3 bài dịch/nghe).
+Helper `aiProv(pro)` (index.html) trả `"geminipro"` khi `pro=true`, ngược lại lấy
+`state.settings.provider`. Các hàm gọi AI đều nhận tham số `pro` để retry bằng key trả phí.
+
 ## 4. Mô hình dữ liệu (state lưu localStorage + KV)
 ```
 {
@@ -159,6 +167,8 @@ Lỗi luôn trả `{ "error":"..." }` kèm header CORS.
   - `addToReview(w)` — đưa vào Nhóm 1; `moveGroup(w,g)` — chuyển nhóm (clamp 1..3);
     `removeFromReview(w)` — bỏ khỏi lịch ôn (mất luôn `pts`).
   - `reviewGroups()` → `{1:[],2:[],3:[]}` (giữ thứ tự HSK); `groupOf(w)`; `newCandidates()`.
+    Riêng **tab “Từ đang ôn”** (`renderReview`) sắp mỗi nhóm theo `progress[w].addedAt`
+    GIẢM DẦN (từ mới thêm hiện trên cùng); `buildPool` vẫn dùng `reviewGroups` thứ tự HSK.
   - `buildPool(total=15, ratio)` — bốc theo tỉ lệ (`poolRatio(mode)` đọc từ Cài đặt),
     làm tròn ngẫu nhiên phần lẻ, dồn quota nhóm rỗng + cho lặp.
   - `logReview(w,ok)` — ghi 1 lượt luyện tập (đếm + streak/heatmap), **KHÔNG đổi nhóm**.
@@ -171,7 +181,9 @@ Lỗi luôn trả `{ "error":"..." }` kèm header CORS.
   khi học trên 2 máy.
 
 ## 5. Biến môi trường (KHÔNG để khóa trong frontend)
-- **proxy (Vercel):** `GEMINI_API_KEY`, `GROQ_API_KEY`. Đổi env xong phải **Redeploy**.
+- **proxy (Vercel):** `GEMINI_API_KEY`, `GROQ_API_KEY`, và **`GEMINI_PRO_API_KEY`** (tùy
+  chọn — key Gemini trả phí cho provider `"geminipro"`/nút “Dùng AI Pro”; thiếu ⇒ dùng
+  `GEMINI_API_KEY`). Đổi env xong phải **Redeploy**.
 - **vocab-worker:** không cần khóa; cần bind KV `VOCAB`.
 - **CORS:** cả hai có mảng `ALLOWED_ORIGINS` — phải chứa URL frontend (KHÔNG kèm `/` cuối).
 

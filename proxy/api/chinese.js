@@ -30,6 +30,8 @@
  *
  * Env (Vercel → Settings → Environment Variables, đổi xong phải Redeploy):
  *   GEMINI_API_KEY, GROQ_API_KEY
+ *   GEMINI_PRO_API_KEY  (tùy chọn) — key Gemini trả phí cho provider "geminipro"
+ *                       (nút "Dùng AI Pro" khi lỗi). Thiếu ⇒ dùng GEMINI_API_KEY.
  * ==========================================================================*/
 
 const ALLOWED_ORIGINS = [
@@ -195,8 +197,8 @@ ${eg ? "Ví dụ mẫu: " + eg + "." : ""}
 Soạn ĐÚNG ${n} câu bài tập luyện riêng điểm ngữ pháp này, trộn đủ 3 dạng mc/order/translate.`;
 }
 
-async function callGemini(sys, prompt, maxTokens) {
-  const key = process.env.GEMINI_API_KEY;
+async function callGemini(sys, prompt, maxTokens, apiKey) {
+  const key = apiKey || process.env.GEMINI_API_KEY;
   if (!key) throw new Error("thiếu GEMINI_API_KEY");
   const r = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
@@ -248,8 +250,15 @@ export default async function handler(req, res) {
 
   try {
     const b = req.body || {};
-    const provider = b.provider === "groq" ? "groq" : "gemini";
-    const call = provider === "groq" ? callGroq : callGemini;
+    // "geminipro" = Gemini bản trả phí (GEMINI_PRO_API_KEY) — dùng khi nút "AI Pro".
+    // Cùng model gemini-2.5-flash, chỉ khác API key (quota cao hơn). Thiếu key pro ⇒
+    // rơi về GEMINI_API_KEY thường để không vỡ tính năng.
+    const provider = b.provider === "groq" ? "groq"
+      : b.provider === "geminipro" ? "geminipro" : "gemini";
+    const proKey = process.env.GEMINI_PRO_API_KEY;
+    const call = provider === "groq" ? callGroq
+      : provider === "geminipro" ? (sys, prompt, mt) => callGemini(sys, prompt, mt, proKey)
+      : callGemini;
 
     if (b.task === "quiz") {
       if (!Array.isArray(b.words) || b.words.length === 0)

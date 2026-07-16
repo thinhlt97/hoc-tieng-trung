@@ -689,6 +689,11 @@ async function fetchProxy(payload, {tries=3, timeout=30000}={}){
   }
   throw lastErr || new Error("Không gọi được AI");
 }
+/* Nhà cung cấp AI cho MỘT lệnh gọi. pro=true ⇒ "geminipro" = key Gemini trả phí
+   trên Vercel (nút "Dùng AI Pro" khi lỗi), quota cao hơn. */
+function aiProv(pro){ return pro ? "geminipro" : state.settings.provider; }
+/* HTML nút "🚀 Dùng AI Pro" (class .ai-pro để tự gắn onclick sau). */
+function aiProBtnHtml(){ return `<button class="btn btn-primary btn-sm ai-pro" style="margin-top:10px">🚀 Dùng AI Pro</button>`; }
 let toastT;
 function toast(msg){
   const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
@@ -920,7 +925,10 @@ function renderReview(){
     if(g[gr].length===0){
       list.append(el(`<p class="small muted" style="margin:0">Chưa có từ nào.</p>`));
     }
-    g[gr].forEach(x=>{
+    // Sắp theo thứ tự THÊM VÀO lịch ôn: từ mới thêm hiện lên trên cùng
+    const rows=g[gr].slice().sort((a,b)=>
+      ((state.progress[b.w]||{}).addedAt||0) - ((state.progress[a.w]||{}).addedAt||0));
+    rows.forEach(x=>{
       const row=el(`<div class="card" style="padding:10px 12px;margin:0;box-shadow:none">
         <div class="row spread wrap">
           <div>
@@ -948,17 +956,24 @@ function renderReview(){
 function aiBlock(x){
   const d=el(`<details class="ai"><summary>✦ Câu ví dụ (AI)</summary><div class="body"><p class="small muted">Đang tải…</p></div></details>`);
   let loaded=false;
-  d.addEventListener("toggle",async()=>{
-    if(!d.open || loaded) return; loaded=true;
+  async function run(pro){
     const body=d.querySelector(".body");
-    if(!PROXY_URL){ body.innerHTML=`<p class="small muted">Chưa cấu hình AI. Điền <code>PROXY_URL</code> trong index.html để bật câu ví dụ.</p>`; return; }
+    body.innerHTML=`<p class="small muted">Đang tải…${pro?" (AI Pro)":""}</p>`;
     try{
-      const j=await fetchProxy({task:"example",word:x.w,pinyin:x.p,meaning:x.vi,provider:state.settings.provider});
+      const j=await fetchProxy({task:"example",word:x.w,pinyin:x.p,meaning:x.vi,provider:aiProv(pro)});
       body.innerHTML=(j.examples||[]).map(e=>`<div class="ai-ex">
         <div class="zh">${esc(e.zh)} ${speakBtn(e.zh)}</div>
         <div class="pinyin small">${esc(e.pinyin||"")}</div>
         <div class="small">${esc(e.vi||"")}</div></div>`).join("") || `<p class="small muted">Không có dữ liệu.</p>`;
-    }catch(err){ body.innerHTML=`<p class="small muted">Lỗi tải ví dụ: ${esc(err.message)}</p>`; }
+    }catch(err){
+      body.innerHTML=`<p class="small muted">Lỗi tải ví dụ: ${esc(err.message)}</p>${aiProBtnHtml()}`;
+      const pb=body.querySelector(".ai-pro"); if(pb) pb.onclick=()=>run(true);
+    }
+  }
+  d.addEventListener("toggle",()=>{
+    if(!d.open || loaded) return; loaded=true;
+    if(!PROXY_URL){ d.querySelector(".body").innerHTML=`<p class="small muted">Chưa cấu hình AI. Điền <code>PROXY_URL</code> trong index.html để bật câu ví dụ.</p>`; return; }
+    run(false);
   });
   return d;
 }
@@ -1142,7 +1157,7 @@ function renderGrammarList(){
   });
 }
 
-async function startGrammarEx(g){
+async function startGrammarEx(g, pro){
   const area=document.getElementById("grammarExArea");
   gView="exercise";                          // vào luồng bài tập → giữ khi chuyển tab
   // ẩn danh sách, tập trung vào bài tập
@@ -1157,10 +1172,10 @@ async function startGrammarEx(g){
   area.innerHTML=`<div class="card" style="text-align:center">
     <div class="word-han" style="font-size:34px">⏳</div>
     <p style="margin:8px 0">Đang tạo 5 câu bài tập cho <b>${esc(g.title)}</b>…</p>
-    <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
+    <p class="small muted">AI: ${pro?"Pro (Gemini trả phí)":esc(state.settings.provider)} · chờ vài giây</p></div>`;
   area.scrollIntoView({block:"start",behavior:"smooth"});
   try{
-    const j=await fetchProxy({task:"grammar", n:5, provider:state.settings.provider,
+    const j=await fetchProxy({task:"grammar", n:5, provider:aiProv(pro),
       level:"HSK"+g.lv, title:g.title, formula:g.formula, explain:g.explain,
       examples:(g.examples||[]).map(e=>({zh:e.zh}))});
     const items=(j.exercises||[]).filter(e=>e&&e.type).slice(0,5);
@@ -1171,9 +1186,11 @@ async function startGrammarEx(g){
     area.innerHTML=`<div class="card">
       <p class="small" style="color:var(--bad);font-weight:600">Không tạo được bài tập: ${esc(err.message)}</p>
       <div class="row wrap" style="margin-top:10px;gap:8px">
-        <button class="btn btn-primary btn-sm" id="gRetry">Thử lại</button>
+        <button class="btn btn-ghost btn-sm" id="gRetry">Thử lại</button>
+        <button class="btn btn-primary btn-sm" id="gPro">🚀 Dùng AI Pro</button>
         <button class="btn btn-ghost btn-sm" id="gBack">← Quay lại ngữ pháp</button></div></div>`;
     document.getElementById("gRetry").onclick=()=>startGrammarEx(g);
+    document.getElementById("gPro").onclick=()=>startGrammarEx(g, true);
     document.getElementById("gBack").onclick=backToGrammarList;
   }
 }
@@ -1651,31 +1668,34 @@ function radCardHtml(c, data){
       ${data.mnemonic?`<div style="margin-top:8px"><b>🧠 Mẹo nhớ:</b> ${esc(data.mnemonic)}</div>`:""}
     </div>`;
 }
-async function fetchRadical(c, x){
+async function fetchRadical(c, x, pro){
   if(RADCACHE[c]) return RADCACHE[c];
   const j=await fetchProxy({task:"radical", char:c, word:x.w, pinyin:x.p, meaning:x.vi,
-    provider:state.settings.provider});
+    provider:aiProv(pro)});
   RADCACHE[c]=j; return j;
 }
 /* Gắn sự kiện cho các nút bộ thủ trong `container` (đã chứa .radbox). */
 function bindRadical(container, x){
   const box=container.querySelector(".radbox"); if(!box) return;
   const out=box.querySelector(".rad-out");
-  async function load(c, btn){
+  async function load(c, btn, pro){
     // Chỉ toggle thẻ THÀNH CÔNG; thẻ lỗi (nếu có) thì bỏ đi để gọi lại cho tươi.
     const good=out.querySelector(`.rad-card:not(.rad-err)[data-c="${c}"]`);
     if(good){ good.style.display = good.style.display==="none" ? "" : "none"; return; }
     out.querySelectorAll(`.rad-card.rad-err[data-c="${c}"]`).forEach(e=>e.remove());
     btn.disabled=true; const lbl=btn.textContent; btn.textContent="🧩 "+c+" …";
     try{
-      const data=await fetchRadical(c, x);
+      const data=await fetchRadical(c, x, pro);
       out.insertAdjacentHTML("beforeend", radCardHtml(c, data));
     }catch(err){
       const errCard=el(`<div class="card rad-card rad-err" data-c="${esc(c)}" style="margin-top:8px;border-color:var(--bad)">
         <b style="color:var(--bad)">Không tạo được giải thích cho 「${esc(c)}」.</b>
         <div class="small muted" style="margin-top:4px">${esc(String((err&&err.message)||err))}</div>
-        <button class="btn btn-ghost btn-sm rad-retry" style="margin-top:8px">↻ Thử lại</button></div>`);
+        <div class="row wrap" style="margin-top:8px;gap:6px">
+          <button class="btn btn-primary btn-sm rad-pro">🚀 Dùng AI Pro</button>
+          <button class="btn btn-ghost btn-sm rad-retry">↻ Thử lại</button></div></div>`);
       errCard.querySelector(".rad-retry").onclick=()=>load(c, btn);
+      errCard.querySelector(".rad-pro").onclick=()=>load(c, btn, true);
       out.appendChild(errCard);
     }finally{ btn.disabled=false; btn.textContent=lbl; }
   }
@@ -1862,7 +1882,7 @@ function bindExamCard(x, opts){
   });
 }
 /* ---- 🎯 Trắc nghiệm AI: câu hỏi tiếng Trung (điền từ / chọn câu đúng) ---- */
-async function startExam(){
+async function startExam(pro){
   const area=document.getElementById("practiceArea");
   const pool=buildPool(15);
   if(pool.length===0){ area.innerHTML=emptyReviewHtml; return; }
@@ -1875,9 +1895,9 @@ async function startExam(){
   area.innerHTML=`<div class="card" style="text-align:center">
     <div class="word-han" style="font-size:34px">⏳</div>
     <p style="margin:8px 0">Đang tạo ${want} câu hỏi bằng tiếng Trung…</p>
-    <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
+    <p class="small muted">AI: ${pro?"Pro (Gemini trả phí)":esc(state.settings.provider)} · chờ vài giây</p></div>`;
   try{
-    const j=await fetchProxy({task:"quiz", n:want, provider:state.settings.provider,
+    const j=await fetchProxy({task:"quiz", n:want, provider:aiProv(pro),
       words:pick.map(w=>({w:w.w,p:w.p,vi:w.vi,pos:w.pos}))});
     let qs=(j.questions||[]).filter(q=>q&&Array.isArray(q.options)&&q.options.length===4
       && Number.isInteger(q.correct) && q.correct>=0 && q.correct<=3 && q.stem);
@@ -1888,8 +1908,13 @@ async function startExam(){
   }catch(err){
     area.innerHTML=`<div class="card">
       <p class="small" style="color:var(--bad);font-weight:600">Không tạo được câu hỏi AI: ${esc(err.message)}</p>
-      <p class="small muted">Đang chuyển sang bộ câu hỏi offline…</p></div>`;
-    setTimeout(()=>startExamOffline(pool), 1100);
+      <div class="row wrap" style="margin-top:10px;gap:8px">
+        <button class="btn btn-primary btn-sm" id="exPro">🚀 Dùng AI Pro</button>
+        <button class="btn btn-ghost btn-sm" id="exRetry">Thử lại</button>
+        <button class="btn btn-ghost btn-sm" id="exOff">Dùng bộ câu hỏi offline</button></div></div>`;
+    document.getElementById("exPro").onclick=()=>startExam(true);
+    document.getElementById("exRetry").onclick=()=>startExam(pro);
+    document.getElementById("exOff").onclick=()=>startExamOffline(pool);
   }
 }
 function startExamOffline(pool){
@@ -2055,7 +2080,7 @@ function renderHist(){
   };
 }
 /* ---- gọi AI lấy 3 câu cho bài dịch (dùng chung 2 chiều) ---- */
-async function fetchTransItems(area, level, task){
+async function fetchTransItems(area, level, task, pro){
   if(!PROXY_URL){
     area.innerHTML=`<div class="card"><p class="small" style="color:var(--bad);font-weight:600">Tính năng này cần AI.</p>
       <p class="small muted">Hãy điền <code>PROXY_URL</code> trong index.html (proxy Vercel <code>/api/chinese</code>) để bật.</p></div>`;
@@ -2064,8 +2089,8 @@ async function fetchTransItems(area, level, task){
   area.innerHTML=`<div class="card" style="text-align:center">
     <div class="word-han" style="font-size:34px">⏳</div>
     <p style="margin:8px 0">Đang tạo câu ${esc(level)} để luyện dịch…</p>
-    <p class="small muted">AI: ${esc(state.settings.provider)} · chờ vài giây</p></div>`;
-  const j=await fetchProxy({task:task||"zh2vi", n:3, level, provider:state.settings.provider});
+    <p class="small muted">AI: ${pro?"Pro (Gemini trả phí)":esc(state.settings.provider)} · chờ vài giây</p></div>`;
+  const j=await fetchProxy({task:task||"zh2vi", n:3, level, provider:aiProv(pro)});
   const items=(j.sentences||[]).filter(s=>s&&s.zh&&s.vi).slice(0,3);
   if(items.length===0) throw new Error("AI không trả câu nào hợp lệ");
   return items;
@@ -2073,16 +2098,18 @@ async function fetchTransItems(area, level, task){
 function transError(err, retryFn){
   document.getElementById("practiceArea").innerHTML=`<div class="card">
     <p class="small" style="color:var(--bad);font-weight:600">Không tạo được câu: ${esc(err.message)}</p>
-    <button class="btn btn-primary" style="margin-top:10px" onclick="${retryFn}()">Thử lại</button></div>`;
+    <div class="row wrap" style="margin-top:10px;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="${retryFn}(true)">🚀 Dùng AI Pro</button>
+      <button class="btn btn-ghost btn-sm" onclick="${retryFn}()">Thử lại</button></div></div>`;
 }
 
 /* ---- 📝 Dịch Trung → Việt: từng câu một ---- */
-async function startZhvi(){
+async function startZhvi(pro){
   session=null; transState=null; clearPractice();      // đang tải câu AI: chưa có gì để khôi phục
   const area=document.getElementById("practiceArea");
   const level=aiLevel();
   try{
-    const items=await fetchTransItems(area, level);
+    const items=await fetchTransItems(area, level, null, pro);
     if(!items) return;
     transState={mode:"zhvi", items, i:0, level, revealed:false, answers:[]};
     renderZhvi();
@@ -2153,12 +2180,12 @@ function renderZhvi(){
 }
 
 /* ---- 📝 Dịch Việt → Trung: 3 câu cùng lúc, mỗi câu có ô gõ chữ Hán ---- */
-async function startVi2zh(){
+async function startVi2zh(pro){
   session=null; transState=null; clearPractice();
   const area=document.getElementById("practiceArea");
   const level=aiLevel();
   try{
-    const items=await fetchTransItems(area, level);
+    const items=await fetchTransItems(area, level, null, pro);
     if(!items) return;
     items.forEach(s=>pushHist(s, level, "vi2zh"));      // lưu cả 3 câu ngay khi hiện ra
     transState={mode:"vi2zh", items, level, revealed:[], answers:[]};
@@ -2232,12 +2259,12 @@ function hanTyped(user, tokens){
   }
   return k;
 }
-async function startSentpy(){
+async function startSentpy(pro){
   session=null; transState=null; clearPractice();
   const area=document.getElementById("practiceArea");
   const level=aiLevel();
   try{
-    const items=await fetchTransItems(area, level, "listen");
+    const items=await fetchTransItems(area, level, "listen", pro);
     if(!items) return;
     transState={mode:"sentpy", items, i:0, level, value:"", checked:false};
     renderSentpy();
