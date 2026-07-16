@@ -202,6 +202,7 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
   <button data-v="grammar">Ngữ pháp</button>
   <button data-v="review">Từ đang ôn</button>
   <button data-v="practice">Luyện tập</button>
+  <button data-v="exam">Luyện đề</button>
   <button data-v="progress">Tiến độ</button>
   <button data-v="settings">Cài đặt</button>
 </nav>
@@ -279,6 +280,13 @@ label.field{display:block; font-size:13px; font-weight:600; margin:12px 0 5px}
       <div id="scopeListBox" style="display:none;margin-top:12px"></div>
     </div>
     <div id="practiceArea"></div>
+  </section>
+
+  <!-- ========================= LUYỆN ĐỀ ========================= -->
+  <section class="view" id="view-exam">
+    <h2 class="section">模拟考试 · Luyện đề</h2>
+    <p class="lead">Tạo một đề HSK mô phỏng (nghe hoặc đọc) bằng AI, làm như thi thật. Đề được lưu lại — tắt/mở lại vẫn làm tiếp, không tốn token. Bấm “Xem đáp án” từng câu để AI giải thích (giải thích cũng được lưu).</p>
+    <div id="examArea"></div>
   </section>
 
   <!-- ========================= TIẾN ĐỘ ========================= -->
@@ -769,6 +777,7 @@ function render(v){
   if(v==="sentences") renderSentences();
   if(v==="grammar") renderGrammar();
   if(v==="practice") renderPracticeHome();
+  if(v==="exam") renderExam();
   if(v==="progress") renderProgress();
   if(v==="settings") renderSettings();
 }
@@ -2340,6 +2349,215 @@ function renderSentpy(){
   if(t.value){ inp.value=t.value; paintHan(); }         // khôi phục phần đã gõ
   if(t.checked){ transState.checked=false; check(); }   // khôi phục màn đã chấm (không chấm lại)
   savePractice();
+}
+
+/* ====================================================================
+ * LUYỆN ĐỀ (đề HSK mô phỏng — nghe/đọc, ~10 câu, lưu localStorage máy này)
+ *   - Tạo đề: proxy task "hskexam" (1 lần gọi/đề). Đề LƯU vào thư viện
+ *     (EXAM_KEY) kèm bài làm + giải thích đã lấy ⇒ tắt/mở lại làm tiếp,
+ *     KHÔNG tốn token lại.
+ *   - Audio nghe: dùng speak() (Google TTS proxy, MIỄN PHÍ, cache 1 tuần) —
+ *     dựng lại từ text nên không cần lưu blob.
+ *   - Xem đáp án: chấm ngay (miễn phí, đã biết correct); giải thích gọi AI/AI Pro
+ *     theo lựa chọn, lấy xong CACHE vào exam.explains[qi].
+ * ==================================================================== */
+const EXAM_KEY = LS_KEY + "_hskexams";
+const EXAM_MAX = 30;
+let examLib=null;      // mảng đề (mới nhất đầu), nạp lười
+let curExam=null;      // đề đang mở (tham chiếu trong examLib)
+function loadExams(){ try{ const a=JSON.parse(localStorage.getItem(EXAM_KEY)); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function persistExams(){ try{ localStorage.setItem(EXAM_KEY, JSON.stringify(examLib||[])); }catch(e){} }
+function examLevel(){ return state.settings.examLevel || "HSK1"; }
+function examSkill(){ return state.settings.examSkill==="listen" ? "listen" : "read"; }
+
+function renderExam(){
+  if(!examLib) examLib=loadExams();
+  if(!curExam && state.settings.examLast) curExam=examLib.find(e=>e.id===state.settings.examLast)||null;
+  if(curExam) renderExamDoing(curExam); else renderExamHome();
+}
+function renderExamHome(){
+  const area=document.getElementById("examArea"); if(!area) return;
+  const level=examLevel(), skill=examSkill(), lib=examLib||[];
+  area.innerHTML=`
+    <div class="card">
+      ${!PROXY_URL?`<p class="small" style="color:var(--bad);font-weight:600">Tính năng này cần AI. Điền <code>PROXY_URL</code> trong index.html để bật.</p>`:""}
+      <div class="chips" id="examLevels" style="margin-bottom:8px">
+        ${["HSK1","HSK2","HSK3"].map(l=>`<button class="chip ${l===level?"active":""}" data-lv="${l}">${l}</button>`).join("")}
+      </div>
+      <div class="chips" id="examSkills" style="margin-bottom:10px">
+        <button class="chip ${skill==="read"?"active":""}" data-sk="read">📖 Đọc hiểu</button>
+        <button class="chip ${skill==="listen"?"active":""}" data-sk="listen">🎧 Nghe hiểu</button>
+      </div>
+      <div class="row wrap" style="gap:8px">
+        <button class="btn btn-primary" id="examMake" ${PROXY_URL?"":"disabled"}>✨ Tạo đề (AI)</button>
+        <button class="btn btn-primary" id="examMakePro" ${PROXY_URL?"":"disabled"}>🚀 Tạo đề (AI Pro)</button>
+      </div>
+      <p class="small muted" style="margin:8px 0 0">Một đề ~10 câu ${skill==="listen"?"nghe":"đọc"}, cấp ${level}. Đề được lưu lại để làm tiếp sau.</p>
+    </div>
+    <div class="card">
+      <b>Đề đã tạo (${lib.length})</b>
+      <div id="examLibList" style="margin-top:10px;display:grid;gap:8px"></div>
+    </div>`;
+  area.querySelector("#examLevels").onclick=e=>{ const b=e.target.closest("[data-lv]"); if(!b)return; state.settings.examLevel=b.dataset.lv; save(); markDirty(); renderExamHome(); };
+  area.querySelector("#examSkills").onclick=e=>{ const b=e.target.closest("[data-sk]"); if(!b)return; state.settings.examSkill=b.dataset.sk; save(); markDirty(); renderExamHome(); };
+  document.getElementById("examMake").onclick=()=>createExam(false);
+  document.getElementById("examMakePro").onclick=()=>createExam(true);
+  renderExamLibList();
+}
+function renderExamLibList(){
+  const box=document.getElementById("examLibList"); if(!box) return;
+  const lib=examLib||[];
+  if(!lib.length){ box.innerHTML=`<p class="small muted" style="margin:0">Chưa có đề nào. Bấm “Tạo đề” ở trên.</p>`; return; }
+  box.innerHTML=lib.map(e=>{
+    const ans=e.answers.filter(a=>a!=null).length, rev=e.revealed.filter(Boolean).length;
+    const d=new Date(e.createdAt).toLocaleDateString("vi-VN",{day:"2-digit",month:"2-digit"});
+    return `<div class="card" style="margin:0;padding:10px 12px">
+      <div class="row spread wrap" style="gap:8px">
+        <div>
+          <b>${e.skill==="listen"?"🎧":"📖"} ${esc(e.title||("Đề "+e.level))}</b>
+          <div class="small muted">${esc(e.level)} · ${e.skill==="listen"?"Nghe":"Đọc"} · ${e.questions.length} câu · ${d} · đã làm ${ans}/${e.questions.length}, xem đáp án ${rev}</div>
+        </div>
+        <div class="row wrap" style="gap:6px">
+          <button class="btn btn-primary btn-sm" data-open="${e.id}">Làm tiếp →</button>
+          <button class="btn btn-ghost btn-sm" data-del="${e.id}" style="color:var(--bad)">🗑</button>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openExam(b.dataset.open));
+  box.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ if(confirm("Xóa đề này (cả bài làm & giải thích đã lưu)?")) delExam(b.dataset.del); });
+}
+function openExam(id){ curExam=(examLib||[]).find(e=>e.id===id)||null; if(curExam){ state.settings.examLast=id; save(); } renderExam(); window.scrollTo({top:0,behavior:"auto"}); }
+function backToExamList(){ curExam=null; state.settings.examLast=""; save(); renderExam(); }
+function delExam(id){
+  examLib=(examLib||[]).filter(e=>e.id!==id); persistExams();
+  if(curExam && curExam.id===id){ curExam=null; state.settings.examLast=""; save(); }
+  renderExam();
+}
+async function createExam(pro){
+  const area=document.getElementById("examArea");
+  const level=examLevel(), skill=examSkill();
+  if(!PROXY_URL){ renderExamHome(); return; }
+  area.innerHTML=`<div class="card" style="text-align:center">
+    <div class="word-han" style="font-size:34px">⏳</div>
+    <p style="margin:8px 0">Đang tạo đề ${esc(level)} · ${skill==="listen"?"Nghe":"Đọc"}…</p>
+    <p class="small muted">AI: ${pro?"Pro (Gemini trả phí)":esc(state.settings.provider)} · chờ vài giây</p></div>`;
+  try{
+    const j=await fetchProxy({task:"hskexam", skill, level, n:10, provider:aiProv(pro)});
+    const qs=(j.questions||[]).filter(q=>q&&q.q&&Array.isArray(q.options)&&q.options.length>=2);
+    if(!qs.length) throw new Error("AI không trả câu hỏi hợp lệ");
+    const exam={ id:"ex"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+      level, skill, title:String(j.title||""), createdAt:Date.now(), questions:qs,
+      answers:qs.map(()=>null), revealed:qs.map(()=>false), explains:qs.map(()=>null) };
+    examLib.unshift(exam);
+    if(examLib.length>EXAM_MAX) examLib.length=EXAM_MAX;
+    persistExams();
+    curExam=exam; state.settings.examLast=exam.id; save();
+    renderExamDoing(exam); window.scrollTo({top:0,behavior:"auto"});
+  }catch(err){
+    area.innerHTML=`<div class="card">
+      <p class="small" style="color:var(--bad);font-weight:600">Không tạo được đề: ${esc(err.message)}</p>
+      <div class="row wrap" style="margin-top:10px;gap:8px">
+        <button class="btn btn-primary btn-sm" id="exGenPro">🚀 Dùng AI Pro</button>
+        <button class="btn btn-ghost btn-sm" id="exGenRetry">Thử lại</button>
+        <button class="btn btn-ghost btn-sm" id="exGenBack">← Danh sách đề</button></div></div>`;
+    document.getElementById("exGenPro").onclick=()=>createExam(true);
+    document.getElementById("exGenRetry").onclick=()=>createExam(pro);
+    document.getElementById("exGenBack").onclick=()=>renderExamHome();
+  }
+}
+function renderExamDoing(exam){
+  const area=document.getElementById("examArea"); if(!area) return;
+  area.innerHTML=`
+    <div class="row spread wrap" style="gap:8px;align-items:center">
+      <button class="btn btn-ghost btn-sm" id="examBack">← Danh sách đề</button>
+      <span class="small muted">${esc(exam.level)} · ${exam.skill==="listen"?"🎧 Nghe":"📖 Đọc"} · ${exam.questions.length} câu</span>
+    </div>
+    <h3 style="margin:10px 0 4px">${esc(exam.title||("Đề "+exam.level))}</h3>
+    ${exam.skill==="listen"?`<p class="small muted" style="margin:0 0 10px">Bấm 🔊 để nghe (nghe lại thoải mái, không tốn token), rồi chọn đáp án.</p>`:`<p class="small muted" style="margin:0 0 10px">Đọc đoạn văn rồi chọn đáp án. Bấm “Xem đáp án” để AI giải thích.</p>`}
+    <div id="examQs" style="display:grid;gap:14px;margin-top:8px"></div>`;
+  document.getElementById("examBack").onclick=backToExamList;
+  const qc=document.getElementById("examQs");
+  exam.questions.forEach((q,qi)=>{ qc.append(el(`<div class="card exq" id="exq-${qi}"></div>`)); fillExamQ(exam, qi); });
+}
+function examExplainHtml(ex){
+  return `<div style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:2px">
+    ${ex.pinyin?`<div class="small"><b>Pinyin:</b> ${esc(ex.pinyin)}</div>`:""}
+    ${ex.vi?`<div class="small" style="margin-top:4px"><b>Dịch:</b> ${esc(ex.vi)}</div>`:""}
+    ${ex.explain?`<div class="small" style="margin-top:6px;line-height:1.6"><b>Giải thích:</b> ${esc(ex.explain)}</div>`:""}
+  </div>`;
+}
+function fillExamQ(exam, qi){
+  const card=document.getElementById("exq-"+qi); if(!card) return;
+  const q=exam.questions[qi], rev=exam.revealed[qi], chosen=exam.answers[qi], ex=exam.explains[qi];
+  const media = exam.skill==="listen"
+    ? `<div class="row wrap" style="gap:8px;align-items:center;margin-bottom:8px">
+         <button class="btn btn-ghost btn-sm exq-play">🔊 Nghe</button>
+         <button class="btn btn-ghost btn-sm exq-slow">🐢 Chậm</button>
+       </div>${rev?`<div class="word-han" style="font-size:18px;line-height:1.6;margin-bottom:8px;user-select:text;-webkit-user-select:text">📝 ${esc(q.audio||"")}</div>`:""}`
+    : `<div class="word-han" style="font-size:20px;line-height:1.6;user-select:text;-webkit-user-select:text;margin-bottom:8px">${esc(q.passage||"")}</div>`;
+  const opts=q.options.map((o,oi)=>{
+    const style = rev
+      ? (oi===q.correct ? "border-color:var(--green);color:var(--green);font-weight:700"
+        : (oi===chosen ? "border-color:var(--bad);color:var(--bad)" : ""))
+      : (oi===chosen ? "border-color:var(--red);color:var(--red);font-weight:700" : "");
+    return `<button class="btn btn-ghost btn-sm exq-opt" data-oi="${oi}" ${rev?"disabled":""}
+      style="justify-content:flex-start;text-align:left;${style}">${String.fromCharCode(65+oi)}. ${esc(o)}${rev&&oi===q.correct?" ✓":""}</button>`;
+  }).join("");
+  card.innerHTML=`
+    <div class="small muted" style="margin-bottom:6px">Câu ${qi+1}/${exam.questions.length}</div>
+    ${media}
+    <div style="font-weight:600;margin-bottom:8px">${esc(q.q)}</div>
+    <div style="display:grid;gap:6px">${opts}</div>
+    <div class="exq-after" style="margin-top:10px"></div>`;
+  if(exam.skill==="listen"){
+    card.querySelector(".exq-play").onclick=()=>speak(q.audio);
+    card.querySelector(".exq-slow").onclick=()=>speak(q.audio, 0.6);
+  }
+  if(!rev) card.querySelectorAll(".exq-opt").forEach(b=>b.onclick=()=>{ exam.answers[qi]=+b.dataset.oi; persistExams(); fillExamQ(exam, qi); });
+  const after=card.querySelector(".exq-after");
+  if(!rev){
+    const btn=el(`<button class="btn btn-primary btn-sm">👁 Xem đáp án</button>`);
+    btn.onclick=()=>{ exam.revealed[qi]=true; persistExams(); fillExamQ(exam, qi); };
+    after.append(btn);
+  }else{
+    const ok = chosen===q.correct;
+    const verdict = chosen==null
+      ? `<span class="small muted">Bạn chưa chọn. Đáp án đúng: <b>${String.fromCharCode(65+q.correct)}</b>.</span>`
+      : `<span style="font-weight:700;color:${ok?'var(--green)':'var(--bad)'}">${ok?"✓ Bạn chọn đúng":"✗ Bạn chọn sai"} — đáp án đúng: ${String.fromCharCode(65+q.correct)}</span>`;
+    after.innerHTML=`<div>${verdict}</div><div class="exq-explain" style="margin-top:8px"></div>`;
+    const box=after.querySelector(".exq-explain");
+    if(ex){ box.innerHTML=examExplainHtml(ex); }
+    else{
+      box.innerHTML=`<div class="small muted" style="margin-bottom:6px">Giải thích bằng AI (lưu lại, lần sau không tốn token):</div>
+        <div class="row wrap" style="gap:6px">
+          <button class="btn btn-ghost btn-sm exq-ai">💡 Giải thích (AI)</button>
+          <button class="btn btn-primary btn-sm exq-pro">🚀 Giải thích (AI Pro)</button></div>`;
+      box.querySelector(".exq-ai").onclick=()=>examExplain(exam,qi,false);
+      box.querySelector(".exq-pro").onclick=()=>examExplain(exam,qi,true);
+    }
+  }
+}
+async function examExplain(exam, qi, pro){
+  const card=document.getElementById("exq-"+qi); if(!card) return;
+  const q=exam.questions[qi];
+  const box=card.querySelector(".exq-explain"); if(!box) return;
+  box.innerHTML=`<p class="small muted">Đang tạo giải thích…${pro?" (AI Pro)":""}</p>`;
+  try{
+    const item = exam.skill==="listen" ? {audio:q.audio} : {passage:q.passage};
+    item.q=q.q; item.options=q.options; item.correct=q.correct;
+    const j=await fetchProxy({task:"hskexplain", level:exam.level, provider:aiProv(pro), item});
+    exam.explains[qi]={ pinyin:String(j.pinyin||""), vi:String(j.vi||""), explain:String(j.explain||"") };
+    persistExams();
+    fillExamQ(exam, qi);
+  }catch(err){
+    box.innerHTML=`<p class="small" style="color:var(--bad)">Lỗi tạo giải thích: ${esc(err.message)}</p>
+      <div class="row wrap" style="gap:6px;margin-top:6px">
+        <button class="btn btn-ghost btn-sm exq-ai">💡 Thử lại (AI)</button>
+        <button class="btn btn-primary btn-sm exq-pro">🚀 Dùng AI Pro</button></div>`;
+    box.querySelector(".exq-ai").onclick=()=>examExplain(exam,qi,false);
+    box.querySelector(".exq-pro").onclick=()=>examExplain(exam,qi,true);
+  }
 }
 
 /* ====================================================================

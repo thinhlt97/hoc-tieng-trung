@@ -31,8 +31,19 @@ dần), sau đó học nghiêm túc. Luồng dùng:
    suất 75%). Tổng ≠ 100% vẫn chạy (tự quy về tỉ lệ tương đối), UI chỉ cảnh báo.
    Nhóm rỗng thì dồn quota sang nhóm còn từ (ưu tiên 1→2→3); nhóm ít từ thì cho lặp lại.
    Kết quả CHỈ tính vào streak/heatmap (`logReview`), KHÔNG tự đổi nhóm.
-6. **Tiến độ**: streak, “từ đã nắm chắc” = Nhóm 3, % theo từng cấp, heatmap, lộ trình.
-7. **Cài đặt**: mã cá nhân (đồng bộ), số từ hiển thị ở Hôm nay, nhà cung cấp AI,
+6. **Luyện đề** (`#view-exam`): tạo **đề HSK mô phỏng** (chọn cấp HSK1/2/3 + kỹ năng
+   🎧 Nghe / 📖 Đọc) ~10 câu trắc nghiệm, làm như thi thật. Nút **Tạo đề (AI)** / **Tạo đề
+   (AI Pro)**. Mỗi câu có nút **“👁 Xem đáp án”** riêng: chấm ngay (miễn phí, đã biết
+   `correct`) rồi cho gọi AI/AI Pro **giải thích** (pinyin + dịch + vì sao đúng/sai). Đề +
+   bài làm + giải thích đã lấy **lưu localStorage MÁY NÀY** (`EXAM_KEY`, thư viện tối đa
+   `EXAM_MAX=30` đề) ⇒ tắt/mở lại làm tiếp, KHÔNG tốn token lại. Audio nghe dùng `speak()`
+   = Google TTS proxy (miễn phí, cache 1 tuần) nên chỉ lưu text, không lưu blob. KHÔNG
+   đồng bộ đa thiết bị (cố ý, cho nhẹ). KHÔNG tính vào SRS/streak. Hàm: `renderExam`,
+   `renderExamHome`/`renderExamLibList`, `createExam(pro)`, `openExam`/`backToExamList`/
+   `delExam`, `renderExamDoing`/`fillExamQ`, `examExplain(exam,qi,pro)`. Lựa chọn cấp/kỹ
+   năng/đề đang mở lưu ở `state.settings.examLevel/examSkill/examLast`.
+7. **Tiến độ**: streak, “từ đã nắm chắc” = Nhóm 3, % theo từng cấp, heatmap, lộ trình.
+8. **Cài đặt**: mã cá nhân (đồng bộ), số từ hiển thị ở Hôm nay, nhà cung cấp AI,
    **tỉ lệ bốc từ Nhóm 1/2/3 cho từng kiểu bài** (`renderRatioRows`), **quy tắc điểm & ngưỡng
    thăng nhóm** (`renderScoreCfg` + nút áp dụng ngay/khôi phục mặc định),
    xuất/nhập JSON, **“Làm lại từ đầu”** (xóa tiến độ cả localStorage lẫn máy chủ,

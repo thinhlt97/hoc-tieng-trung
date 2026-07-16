@@ -28,6 +28,12 @@
  *        { type:"order",     segments:[...], answer, pinyin, vi, explain },
  *        { type:"translate", vi, answer, pinyin, explain } ] }
  *
+ * POST { task:"hskexam", skill:"listen"|"read", level:"HSK1", n:10, provider }
+ *  ←  { title, skill, level, questions:[ { passage|audio, q, options:[3-4], correct:0.. } ] }
+ *      (đề NHẸ để làm; pinyin/dịch/giải thích lấy riêng bằng "hskexplain")
+ * POST { task:"hskexplain", level, item:{ passage|audio, q, options, correct }, provider }
+ *  ←  { pinyin, vi, explain }   // gọi khi bấm "Xem đáp án" từng câu; frontend cache lại
+ *
  * Env (Vercel → Settings → Environment Variables, đổi xong phải Redeploy):
  *   GEMINI_API_KEY, GROQ_API_KEY
  *   GEMINI_PRO_API_KEY  (tùy chọn) — key Gemini trả phí cho provider "geminipro"
@@ -197,6 +203,59 @@ ${eg ? "Ví dụ mẫu: " + eg + "." : ""}
 Soạn ĐÚNG ${n} câu bài tập luyện riêng điểm ngữ pháp này, trộn đủ 3 dạng mc/order/translate.`;
 }
 
+/* ---------- task: hskexam (tạo 1 đề thi HSK mô phỏng, nghe hoặc đọc) ----------
+ * Sinh ~n câu trắc nghiệm CHẤM ĐƯỢC (correct = index), giữ NHẸ để tiết kiệm token:
+ * chỉ ngữ liệu để LÀM đề. Pinyin/dịch/giải thích lấy sau bằng task "hskexplain". */
+const SYS_HSKEXAM = `Bạn là chuyên gia soạn đề thi HSK (Hán ngữ Thủy bình Khảo thí) cho người Việt tự luyện.
+Soạn MỘT đề mô phỏng theo đúng PHONG CÁCH đề thi HSK thật, dùng chữ Hán GIẢN THỂ, đúng phạm vi từ vựng/ngữ pháp của cấp được yêu cầu (không dùng từ vượt cấp).
+Mọi câu là TRẮC NGHIỆM chấm tự động (có đáp án đúng). Câu hỏi và phương án viết bằng TIẾNG TRUNG (như đề thật).
+
+- Nếu kỹ năng là "read" (đọc hiểu): mỗi câu có
+  "passage": đoạn/câu tiếng Trung để đọc (ngắn gọn hợp cấp; có thể là 1-3 câu hoặc đoạn hội thoại),
+  "q": câu hỏi tiếng Trung, "options": 3-4 phương án tiếng Trung, "correct": chỉ số 0-based của đáp án đúng.
+- Nếu kỹ năng là "listen" (nghe hiểu): mỗi câu có
+  "audio": lời cần ĐỌC TO cho thí sinh nghe — tiếng Trung tự nhiên (1 câu hoặc hội thoại ngắn 2 người), TỐI ĐA 180 ký tự,
+  "q": câu hỏi tiếng Trung, "options": 3-4 phương án tiếng Trung, "correct": chỉ số 0-based.
+  (KHÔNG lặp nguyên văn "audio" trong "q" — người nghe phải nghe rồi mới trả lời được.)
+
+Ra đúng số câu được yêu cầu, độ khó tăng dần nhẹ. Phương án nhiễu phải hợp lý (cùng loại, dễ nhầm).
+Trả về DUY NHẤT JSON hợp lệ:
+{"title":"tên đề ngắn","questions":[{"passage":"...","q":"...","options":["...","...","..."],"correct":0}]}
+(với "listen" thì thay "passage" bằng "audio"). Không thêm chữ nào ngoài JSON.`;
+
+function promptHskExam(b) {
+  const n = Math.min(Math.max(parseInt(b.n, 10) || 10, 4), 15);
+  const lv = String(b.level || "HSK1").trim() || "HSK1";
+  const skill = b.skill === "listen" ? "listen" : "read";
+  return `Cấp: ${lv}. Kỹ năng: ${skill === "listen" ? "nghe hiểu (listen)" : "đọc hiểu (read)"}.
+Soạn đề gồm ĐÚNG ${n} câu trắc nghiệm theo mô tả ở trên, đúng phạm vi ${lv}.`;
+}
+
+/* ---------- task: hskexplain (giải thích 1 câu trong đề — gọi khi bấm "Xem đáp án") ---------- */
+const SYS_HSKEXPLAIN = `Bạn là giáo viên tiếng Trung cho người Việt, đang chữa MỘT câu trong đề thi HSK.
+Cho ngữ liệu (đoạn đọc HOẶC lời nghe), câu hỏi, các phương án và chỉ số đáp án đúng, hãy trả về:
+- "pinyin": pinyin CÓ DẤU của đoạn đọc/lời nghe (và câu hỏi nếu ngắn) — giúp người học đọc được.
+- "vi": bản dịch TIẾNG VIỆT của ngữ liệu + câu hỏi + các phương án (ngắn gọn, rõ).
+- "explain": giải thích TIẾNG VIỆT vì sao đáp án đúng là đúng, và vì sao từng phương án còn lại sai; nêu từ/mẫu câu đáng chú ý.
+Chính xác, bám sát ngữ liệu, KHÔNG bịa. Trả về DUY NHẤT JSON hợp lệ:
+{"pinyin":"...","vi":"...","explain":"..."}
+Không thêm chữ nào ngoài JSON.`;
+
+function promptHskExplain(b) {
+  const it = b.item || {};
+  const src = it.audio ? `Lời nghe: ${it.audio}` : `Đoạn đọc: ${it.passage || ""}`;
+  const opts = Array.isArray(it.options)
+    ? it.options.map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`).join("  ")
+    : "";
+  const lv = String(b.level || "HSK1").trim() || "HSK1";
+  return `Cấp ${lv}, kỹ năng ${it.audio ? "nghe" : "đọc"}.
+${src}
+Câu hỏi: ${it.q || ""}
+Phương án: ${opts}
+Đáp án đúng: ${String.fromCharCode(65 + (parseInt(it.correct, 10) || 0))}.
+Hãy chữa câu này.`;
+}
+
 async function callGemini(sys, prompt, maxTokens, apiKey) {
   const key = apiKey || process.env.GEMINI_API_KEY;
   if (!key) throw new Error("thiếu GEMINI_API_KEY");
@@ -329,6 +388,38 @@ export default async function handler(req, res) {
           : e.vi && e.answer
         );
       return res.status(200).json({ exercises });
+    }
+
+    if (b.task === "hskexam") {
+      const raw = await call(SYS_HSKEXAM, promptHskExam(b), 4000);
+      const out = parseJson(raw);
+      const skill = b.skill === "listen" ? "listen" : "read";
+      const questions = (out.questions || [])
+        .map((q) => {
+          const o = {
+            q: String(q.q || ""),
+            options: Array.isArray(q.options) ? q.options.slice(0, 4).map((x) => String(x)) : [],
+            correct: Number.isInteger(q.correct) ? q.correct : parseInt(q.correct, 10) || 0,
+          };
+          if (skill === "listen") o.audio = String(q.audio || "").slice(0, 200);
+          else o.passage = String(q.passage || "");
+          return o;
+        })
+        .filter((q) => q.q && q.options.length >= 2 && q.options.length <= 4 &&
+                       q.correct >= 0 && q.correct < q.options.length &&
+                       (skill === "listen" ? q.audio : true));
+      if (questions.length === 0) return res.status(502).json({ error: "AI không trả câu hỏi hợp lệ" });
+      return res.status(200).json({ title: String(out.title || ""), skill, level: String(b.level || ""), questions });
+    }
+
+    if (b.task === "hskexplain") {
+      const raw = await call(SYS_HSKEXPLAIN, promptHskExplain(b), 1500);
+      const out = parseJson(raw);
+      return res.status(200).json({
+        pinyin: String(out.pinyin || ""),
+        vi: String(out.vi || ""),
+        explain: String(out.explain || ""),
+      });
     }
 
     // "zh2vi" = 2 bài dịch (Trung→Việt / Việt→Trung); "listen" = nghe cả câu rồi gõ pinyin
