@@ -10,7 +10,9 @@
 const ALLOWED_ORIGINS = [
   // KHÔNG kèm dấu "/" cuối. Thêm URL frontend sau khi deploy Cloudflare Pages/Workers.
   "https://hoc-tieng-trung.pages.dev",
+  "https://tocfl-dai-loan.pages.dev",   // app tiếng Trung Đài Loan (SỬA thành tên project Pages thật của bạn)
   "http://localhost:8080",
+  "http://localhost:8090",              // app Đài Loan chạy thử local
   "http://127.0.0.1:8080",
 ];
 

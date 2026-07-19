@@ -12,7 +12,9 @@
 
 const ALLOWED_ORIGINS = [
   "https://hoc-tieng-trung.pages.dev",
+  "https://tocfl-dai-loan.pages.dev",   // app tiếng Trung Đài Loan (SỬA thành tên project Pages thật của bạn)
   "http://localhost:8080",
+  "http://localhost:8090",              // app Đài Loan chạy thử local
   "http://127.0.0.1:8080",
 ];
 
@@ -27,8 +29,10 @@ export default async function handler(req, res) {
   const q = (req.query.q || "").toString().trim().slice(0, 200);
   if (!q) return res.status(400).json({ error: "thiếu q" });
 
+  // tl: chọn giọng — zh-TW (Đài Loan) cho app TOCFL, zh-CN (mặc định) cho app HSK.
+  const tl = ["zh-TW", "zh-CN"].includes((req.query.tl || "").toString()) ? req.query.tl : "zh-CN";
   const url =
-    "https://translate.google.com/translate_tts?ie=UTF-8&tl=zh-CN&client=tw-ob&q=" +
+    "https://translate.google.com/translate_tts?ie=UTF-8&tl=" + tl + "&client=tw-ob&q=" +
     encodeURIComponent(q);
 
   try {
