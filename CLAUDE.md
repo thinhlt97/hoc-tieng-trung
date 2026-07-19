@@ -31,17 +31,27 @@ dần), sau đó học nghiêm túc. Luồng dùng:
    suất 75%). Tổng ≠ 100% vẫn chạy (tự quy về tỉ lệ tương đối), UI chỉ cảnh báo.
    Nhóm rỗng thì dồn quota sang nhóm còn từ (ưu tiên 1→2→3); nhóm ít từ thì cho lặp lại.
    Kết quả CHỈ tính vào streak/heatmap (`logReview`), KHÔNG tự đổi nhóm.
-6. **Luyện đề** (`#view-exam`): tạo **đề HSK mô phỏng** (chọn cấp HSK1/2/3 + kỹ năng
-   🎧 Nghe / 📖 Đọc) ~10 câu trắc nghiệm, làm như thi thật. Nút **Tạo đề (AI)** / **Tạo đề
-   (AI Pro)**. Mỗi câu có nút **“👁 Xem đáp án”** riêng: chấm ngay (miễn phí, đã biết
-   `correct`) rồi cho gọi AI/AI Pro **giải thích** (pinyin + dịch + vì sao đúng/sai). Đề +
-   bài làm + giải thích đã lấy **lưu localStorage MÁY NÀY** (`EXAM_KEY`, thư viện tối đa
-   `EXAM_MAX=30` đề) ⇒ tắt/mở lại làm tiếp, KHÔNG tốn token lại. Audio nghe dùng `speak()`
-   = Google TTS proxy (miễn phí, cache 1 tuần) nên chỉ lưu text, không lưu blob. KHÔNG
-   đồng bộ đa thiết bị (cố ý, cho nhẹ). KHÔNG tính vào SRS/streak. Hàm: `renderExam`,
-   `renderExamHome`/`renderExamLibList`, `createExam(pro)`, `openExam`/`backToExamList`/
-   `delExam`, `renderExamDoing`/`fillExamQ`, `examExplain(exam,qi,pro)`. Lựa chọn cấp/kỹ
-   năng/đề đang mở lưu ở `state.settings.examLevel/examSkill/examLast`.
+6. **Luyện đề** (`#view-exam`): tạo **đề HSK mô phỏng ĐẦY ĐỦ theo phần (题型)** như thi
+   thật — chọn cấp HSK1/2/3, mỗi đề gộp **Nghe + Đọc** (HSK3 thêm **Viết**), **đủ số câu
+   thật**: HSK1 40, HSK2 60, HSK3 80. Cấu trúc phần định nghĩa ở `EXAM_BLUEPRINT[level]`
+   (mảng `sections:[{skill,part,type,n,name,desc}]`; `type` ∈ `tf`/`mc`/`fillhan`/`order`).
+   Các phần dùng tranh trong đề thật được **thay bằng biến thể thuần chữ** để chấm tự động
+   (Đúng/Sai, trắc nghiệm, điền chữ Hán, sắp xếp trật tự từ). Nút **Tạo đề (AI)** / **(AI
+   Pro)** → `createExam(pro)` gọi proxy `task:"hskpart"` **MỘT LẦN MỖI PHẦN** (8–9 lần, có
+   thanh tiến trình), gộp lại thành 1 đề (~30–60s). **KHÔNG có nộp bài/chấm điểm tổng, KHÔNG
+   đồng hồ** (theo yêu cầu): làm từng câu → nút **“👁 Xem đáp án”** riêng chấm ngay (miễn phí,
+   đã biết đáp án) → với câu mc/tf cho gọi AI/AI Pro **giải thích** (`fullExplain`, dùng
+   `task:"hskexplain"`); câu `fillhan`/`order` hiện sẵn đáp án + pinyin + dịch. Câu nghe có
+   nút 🔊/🐢 (`speak()` = Google TTS, chỉ lưu text). Đề + bài làm + giải thích **lưu
+   localStorage MÁY NÀY** (`EXAM_KEY`, tối đa `EXAM_MAX=30` đề) ⇒ **tắt/mở lại làm tiếp**,
+   không tốn token lại; KHÔNG đồng bộ đa thiết bị (cố ý). KHÔNG tính vào SRS/streak.
+   Hàm chính: `renderExam`→`isFullExam` phân nhánh `renderExamFull`/`fillFullQ`/`fullExplain`
+   (đề đầy đủ, mới) hoặc `renderExamDoing`/`fillExamQ`/`examExplain` (**đề CŨ 1 kỹ năng, giữ
+   để tương thích ngược**); `renderExamHome`/`renderExamLibList`, `createExam(pro)`,
+   `openExam`/`backToExamList`/`delExam`. Object đề mới: `{mode:"full", sections, questions[{section,skill,type,...}],
+   answers, revealed, explains}`. Cấp đang chọn/đề đang mở lưu ở `state.settings.examLevel/examLast`
+   (`examSkill` không còn dùng cho đề mới). Chấm điền chữ Hán = `normHan` (bỏ dấu câu/khoảng
+   trắng, so hệt); sắp xếp = `grNorm`.
 7. **Tiến độ**: streak, “từ đã nắm chắc” = Nhóm 3, % theo từng cấp, heatmap, lộ trình.
 8. **Cài đặt**: mã cá nhân (đồng bộ), số từ hiển thị ở Hôm nay, nhà cung cấp AI,
    **tỉ lệ bốc từ Nhóm 1/2/3 cho từng kiểu bài** (`renderRatioRows`), **quy tắc điểm & ngưỡng
@@ -139,7 +149,29 @@ POST ?code=MA { "data":{} }← { "ok": true }
 // Trộn 3 dạng: trắc nghiệm ABCD / sắp xếp cụm từ / dịch Việt→Trung. Chấm ngay ở client
 // (order so khớp bỏ dấu câu; translate tự chấm bằng nút “Xem đáp án”). KHÔNG tính vào SRS.
 ```
+**Đề HSK đầy đủ — sinh MỘT phần/题型** (tab Luyện đề gọi lặp cho từng phần):
+```
+→ { "task":"hskpart", "level":"HSK1"|"HSK2"|"HSK3",
+    "section":{ "skill":"listen"|"read"|"write", "type":"tf"|"mc"|"fillhan"|"order",
+                "part":1, "n":5, "desc":"mô tả phần" }, "provider" }
+← { "questions":[
+    // tf  -> đã CHUẨN HÓA thành mc 2 phương án:
+    { "type":"tf","skill", <"audio"|"passage">, "q"(=nhận định), "options":["✓ 对 (Đúng)","✗ 错 (Sai)"], "correct":0|1 },
+    { "type":"mc","skill", <"audio"|"passage">, "q","options":[3-4],"correct":0.. },
+    { "type":"fillhan","skill":"write","q"(có ___),"answer"(chữ Hán),"pinyin","vi" },
+    { "type":"order","skill":"write","segments":[...],"answer","pinyin","vi" } ] }
+// audio = lời đọc to (câu nghe); passage = đoạn đọc. tf: correct=0 nếu nhận định ĐÚNG.
+// Rỗng/không hợp lệ → 502. Frontend gộp nhiều phần thành 1 đề, thêm q.section trỏ về sections[].
+```
+Còn `task:"hskexplain"` (chữa 1 câu mc/tf): xem hàm `fullExplain`/`examExplain`, trả `{pinyin,vi,explain}`.
 Lỗi luôn trả `{ "error":"..." }` kèm header CORS.
+
+**Provider `"qwen"` / `"deepseek"` (mô hình mở qua OpenRouter):** chọn ở tab Cài đặt
+(chip Qwen/DeepSeek → `state.settings.provider`). Proxy gọi OpenRouter (API tương thích
+OpenAI) bằng **1 key `OPENROUTER_API_KEY`**. Model đặt qua env `OPENROUTER_QWEN_MODEL`
+(mặc định `qwen/qwen-2.5-72b-instruct` — mạnh tiếng Trung) và `OPENROUTER_DEEPSEEK_MODEL`
+(mặc định `deepseek/deepseek-chat` — V3). Hàm `callOpenRouter()` + map `OR_MODELS`. Thiếu
+key ⇒ báo lỗi (nút “Dùng AI Pro” vẫn rơi về Gemini pro/thường). Áp cho MỌI task.
 
 **Provider `"geminipro"` (nút “🚀 Dùng AI Pro”):** mọi task nhận thêm giá trị
 `provider:"geminipro"` — dùng key Gemini **trả phí** `GEMINI_PRO_API_KEY` trên Vercel
@@ -194,7 +226,9 @@ Helper `aiProv(pro)` (index.html) trả `"geminipro"` khi `pro=true`, ngược l
 ## 5. Biến môi trường (KHÔNG để khóa trong frontend)
 - **proxy (Vercel):** `GEMINI_API_KEY`, `GROQ_API_KEY`, và **`GEMINI_PRO_API_KEY`** (tùy
   chọn — key Gemini trả phí cho provider `"geminipro"`/nút “Dùng AI Pro”; thiếu ⇒ dùng
-  `GEMINI_API_KEY`). Đổi env xong phải **Redeploy**.
+  `GEMINI_API_KEY`). **`OPENROUTER_API_KEY`** (tùy chọn — cho provider `"qwen"`/`"deepseek"`;
+  model đổi được qua `OPENROUTER_QWEN_MODEL` / `OPENROUTER_DEEPSEEK_MODEL`). Đổi env xong
+  phải **Redeploy**.
 - **vocab-worker:** không cần khóa; cần bind KV `VOCAB`.
 - **CORS:** cả hai có mảng `ALLOWED_ORIGINS` — phải chứa URL frontend (KHÔNG kèm `/` cuối).
 

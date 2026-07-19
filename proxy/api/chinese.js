@@ -38,11 +38,18 @@
  *   GEMINI_API_KEY, GROQ_API_KEY
  *   GEMINI_PRO_API_KEY  (tùy chọn) — key Gemini trả phí cho provider "geminipro"
  *                       (nút "Dùng AI Pro" khi lỗi). Thiếu ⇒ dùng GEMINI_API_KEY.
+ *   OPENROUTER_API_KEY  (tùy chọn) — 1 key cho provider "qwen"/"deepseek" (mô hình
+ *                       mở qua OpenRouter, tương thích OpenAI). Model đặt được qua
+ *                       OPENROUTER_QWEN_MODEL / OPENROUTER_DEEPSEEK_MODEL.
+ *
+ * provider nhận: "gemini" (mặc định) | "groq" | "geminipro" | "qwen" | "deepseek".
  * ==========================================================================*/
 
 const ALLOWED_ORIGINS = [
   "https://hoc-tieng-trung.pages.dev",
+  "https://tocfl-dai-loan.pages.dev",   // app tiếng Trung Đài Loan (SỬA thành tên project Pages thật của bạn)
   "http://localhost:8080",
+  "http://localhost:8090",              // app Đài Loan chạy thử local
   "http://127.0.0.1:8080",
 ];
 
@@ -231,6 +238,49 @@ function promptHskExam(b) {
 Soạn đề gồm ĐÚNG ${n} câu trắc nghiệm theo mô tả ở trên, đúng phạm vi ${lv}.`;
 }
 
+/* ---------- task: hskpart (sinh MỘT phần/题型 của đề HSK đầy đủ) ----------
+ * POST { task:"hskpart", level:"HSK1", section:{ skill, type, part, n, desc }, provider }
+ *  ←  { questions:[ ... ] }  (đã chuẩn hóa: tf -> mc 2 phương án)
+ */
+const SYS_HSKPART = `Bạn là chuyên gia soạn đề thi HSK (Hán ngữ Thủy bình Khảo thí) cho người Việt tự luyện.
+Soạn MỘT PHẦN (题型) của đề thi HSK theo đúng phong cách đề thật, dùng chữ Hán GIẢN THỂ, CHỈ dùng từ vựng/ngữ pháp trong phạm vi cấp được yêu cầu (KHÔNG vượt cấp).
+Bạn nhận: cấp, kỹ năng (listen/read/write), loại câu "type", số câu "n", mô tả phần. Sinh ĐÚNG n câu theo "type":
+
+- type "tf" (Đúng/Sai): mỗi câu
+  { "type":"tf", <"audio" nếu kỹ năng nghe | "passage" nếu kỹ năng đọc>:"tiếng Trung",
+    "stmt":"nhận định TIẾNG TRUNG về nội dung ngữ liệu", "correct": true HOẶC false }
+  ("audio" = lời đọc to cho thí sinh nghe, ≤180 ký tự). Nên xấp xỉ nửa Đúng nửa Sai.
+
+- type "mc" (trắc nghiệm): mỗi câu
+  { "type":"mc", <"audio"|"passage" nếu có>:"...", "q":"câu hỏi TIẾNG TRUNG",
+    "options":["3-4 phương án TIẾNG TRUNG"], "correct": chỉ số 0-based của đáp án đúng }
+  KHÔNG lặp nguyên văn audio/passage trong "q". Phương án nhiễu hợp lý, cùng loại, dễ nhầm.
+  Nếu phần là "điền từ vào chỗ trống": để "passage"/"audio" trống, "q" là câu có chỗ trống ____, options là các từ.
+  Nếu phần là "nối câu / chọn lời đáp": "q" là câu/lời cho trước, options là các câu đáp, chọn câu hợp nhất.
+
+- type "fillhan" (viết chữ Hán): mỗi câu
+  { "type":"fillhan", "q":"câu TIẾNG TRUNG có chỗ trống ____ , trong ngoặc ghi gợi ý pinyin của chữ cần điền",
+    "answer":"chữ Hán cần điền (1-3 chữ)", "pinyin":"pinyin cả câu (có dấu)", "vi":"dịch nghĩa cả câu" }
+
+- type "order" (sắp xếp trật tự từ): mỗi câu
+  { "type":"order", "segments":["các cụm từ đã XÁO TRỘN thứ tự"], "answer":"câu đúng hoàn chỉnh",
+    "pinyin":"pinyin câu đúng (có dấu)", "vi":"dịch nghĩa" }
+  segments gồm 3-5 cụm; ghép các cụm theo đúng thứ tự trong "answer" (bỏ dấu câu) phải ra "answer".
+
+Nội dung đa dạng (đời sống, học tập, mua sắm, thời gian, công việc…), độ khó hợp cấp.
+Trả về DUY NHẤT JSON: {"questions":[ ... ]}. Không thêm chữ nào ngoài JSON.`;
+
+function promptHskPart(b) {
+  const lv = String(b.level || "HSK1").trim() || "HSK1";
+  const s = b.section || {};
+  const skill = s.skill === "listen" ? "listen" : s.skill === "write" ? "write" : "read";
+  const type = ["tf", "mc", "fillhan", "order"].includes(s.type) ? s.type : "mc";
+  const n = Math.min(Math.max(parseInt(s.n, 10) || 5, 1), 12);
+  return `Cấp: ${lv}. Kỹ năng: ${skill}. Loại câu (type): ${type}. Số câu: ${n}.
+Mô tả phần: ${s.desc || ""}.
+Sinh ĐÚNG ${n} câu type "${type}", đúng phạm vi từ vựng/ngữ pháp ${lv}.`;
+}
+
 /* ---------- task: hskexplain (giải thích 1 câu trong đề — gọi khi bấm "Xem đáp án") ---------- */
 const SYS_HSKEXPLAIN = `Bạn là giáo viên tiếng Trung cho người Việt, đang chữa MỘT câu trong đề thi HSK.
 Cho ngữ liệu (đoạn đọc HOẶC lời nghe), câu hỏi, các phương án và chỉ số đáp án đúng, hãy trả về:
@@ -295,6 +345,41 @@ async function callGroq(sys, prompt, maxTokens) {
   return j.choices?.[0]?.message?.content || "";
 }
 
+/* ---------- OpenRouter (mô hình mở: Qwen / DeepSeek) ----------
+ * API tương thích OpenAI. Một key OPENROUTER_API_KEY dùng chung cho mọi model.
+ * Model đặt được qua env để đổi mà không sửa code:
+ *   OPENROUTER_QWEN_MODEL     (mặc định qwen/qwen-2.5-72b-instruct — mạnh tiếng Trung)
+ *   OPENROUTER_DEEPSEEK_MODEL (mặc định deepseek/deepseek-chat — DeepSeek V3) */
+const OR_MODELS = {
+  qwen: () => process.env.OPENROUTER_QWEN_MODEL || "qwen/qwen-2.5-72b-instruct",
+  deepseek: () => process.env.OPENROUTER_DEEPSEEK_MODEL || "deepseek/deepseek-chat",
+};
+
+async function callOpenRouter(sys, prompt, maxTokens, model) {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error("thiếu OPENROUTER_API_KEY");
+  const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + key,
+      // Tùy chọn, OpenRouter khuyến nghị để nhận diện app:
+      "HTTP-Referer": "https://hoc-tieng-trung.pages.dev",
+      "X-Title": "Hoc tieng Trung",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.7,
+      max_tokens: maxTokens,
+      response_format: { type: "json_object" },
+      messages: [{ role: "system", content: sys }, { role: "user", content: prompt }],
+    }),
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error?.message || "OpenRouter lỗi " + r.status);
+  return j.choices?.[0]?.message?.content || "";
+}
+
 function parseJson(text) {
   try { return JSON.parse(text); } catch (e) {}
   const m = text.match(/\{[\s\S]*\}/);
@@ -312,12 +397,26 @@ export default async function handler(req, res) {
     // "geminipro" = Gemini bản trả phí (GEMINI_PRO_API_KEY) — dùng khi nút "AI Pro".
     // Cùng model gemini-2.5-flash, chỉ khác API key (quota cao hơn). Thiếu key pro ⇒
     // rơi về GEMINI_API_KEY thường để không vỡ tính năng.
-    const provider = b.provider === "groq" ? "groq"
-      : b.provider === "geminipro" ? "geminipro" : "gemini";
+    // "qwen"/"deepseek" = mô hình mở qua OpenRouter (1 key OPENROUTER_API_KEY).
+    const VALID = ["gemini", "groq", "geminipro", "qwen", "deepseek"];
+    const provider = VALID.includes(b.provider) ? b.provider : "gemini";
     const proKey = process.env.GEMINI_PRO_API_KEY;
-    const call = provider === "groq" ? callGroq
+    const baseCall =
+      provider === "groq" ? callGroq
       : provider === "geminipro" ? (sys, prompt, mt) => callGemini(sys, prompt, mt, proKey)
+      : provider === "qwen" || provider === "deepseek"
+        ? (sys, prompt, mt) => callOpenRouter(sys, prompt, mt, OR_MODELS[provider]())
       : callGemini;
+    // script:"trad" (app tiếng Trung Đài Loan / TOCFL) ⇒ ép LLM xuất chữ PHỒN THỂ.
+    // App HSK không gửi cờ này nên hành vi cũ giữ nguyên (giản thể).
+    const TRAD_NOTE =
+      "\n\n=== YÊU CẦU BẮT BUỘC (tiếng Trung ĐÀI LOAN / TOCFL) ===\n" +
+      "MỌI chữ Hán trong kết quả PHẢI là chữ PHỒN THỂ 繁體字 theo chuẩn Đài Loan; TUYỆT ĐỐI KHÔNG dùng chữ giản thể. " +
+      "Ưu tiên từ vựng và cách diễn đạt phổ biến ở Đài Loan (ví dụ: 計程車, 捷運, 早餐, 手機, 網路, 影片, 這裡, 哪裡). " +
+      "Các trường pinyin vẫn dùng pinyin có dấu thanh như bình thường.";
+    const call = b.script === "trad"
+      ? (sys, prompt, mt) => baseCall(String(sys || "") + TRAD_NOTE, prompt, mt)
+      : baseCall;
 
     if (b.task === "quiz") {
       if (!Array.isArray(b.words) || b.words.length === 0)
@@ -410,6 +509,52 @@ export default async function handler(req, res) {
                        (skill === "listen" ? q.audio : true));
       if (questions.length === 0) return res.status(502).json({ error: "AI không trả câu hỏi hợp lệ" });
       return res.status(200).json({ title: String(out.title || ""), skill, level: String(b.level || ""), questions });
+    }
+
+    if (b.task === "hskpart") {
+      const s = b.section || {};
+      const dtype = ["tf", "mc", "fillhan", "order"].includes(s.type) ? s.type : "mc";
+      const skill = s.skill === "listen" ? "listen" : s.skill === "write" ? "write" : "read";
+      const raw = await call(SYS_HSKPART, promptHskPart(b), 3800);
+      const out = parseJson(raw);
+      const questions = [];
+      for (const q of out.questions || []) {
+        if (!q) continue;
+        const t = q.type || dtype;
+        if (t === "tf") {
+          const stmt = String(q.stmt || q.q || "");
+          if (!stmt) continue;
+          const o = {
+            type: "tf", skill, q: stmt,
+            options: ["✓ 对 (Đúng)", "✗ 错 (Sai)"],
+            correct: (q.correct === true || q.correct === "true" || q.correct === 1) ? 0 : 1,
+          };
+          if (skill === "listen") o.audio = String(q.audio || "").slice(0, 220);
+          else o.passage = String(q.passage || "");
+          questions.push(o);
+        } else if (t === "fillhan") {
+          const ans = String(q.answer || "").trim();
+          if (!q.q || !ans) continue;
+          questions.push({ type: "fillhan", skill: "write", q: String(q.q), answer: ans,
+            pinyin: String(q.pinyin || ""), vi: String(q.vi || "") });
+        } else if (t === "order") {
+          const segs = Array.isArray(q.segments) ? q.segments.map((x) => String(x)).filter(Boolean) : [];
+          const ans = String(q.answer || "").trim();
+          if (segs.length < 2 || !ans) continue;
+          questions.push({ type: "order", skill: "write", segments: segs, answer: ans,
+            pinyin: String(q.pinyin || ""), vi: String(q.vi || "") });
+        } else {
+          const opts = Array.isArray(q.options) ? q.options.slice(0, 4).map((x) => String(x)) : [];
+          const correct = Number.isInteger(q.correct) ? q.correct : parseInt(q.correct, 10) || 0;
+          if (!q.q || opts.length < 2 || opts.length > 4 || correct < 0 || correct >= opts.length) continue;
+          const o = { type: "mc", skill, q: String(q.q), options: opts, correct };
+          if (skill === "listen") o.audio = String(q.audio || "").slice(0, 220);
+          else if (skill === "read") o.passage = String(q.passage || "");
+          questions.push(o);
+        }
+      }
+      if (!questions.length) return res.status(502).json({ error: "AI không trả câu hỏi hợp lệ" });
+      return res.status(200).json({ questions });
     }
 
     if (b.task === "hskexplain") {
